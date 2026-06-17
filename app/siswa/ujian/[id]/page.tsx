@@ -79,11 +79,9 @@ export default function LembarUjianPage() {
         return;
       }
 
-      // Gunakan data dari state atau localStorage yang sudah dibersihkan sebagai fallback awal
       let namaSiswaTerbaru = namaSiswa || namaSiswaLocal || 'Siswa Tanpa Nama';
       let kelasSiswaTerbaru = kelasSiswa || (kelasLocal ? kelasLocal.trim().toUpperCase() : 'UMUM');
 
-      // 🔍 VALIDASI ULANG KE DATABASE PROFILES AGAR DATA DIJAMIN ASLI ("X TKJ 1")
       const { data: profileDb, error: errorProfile } = await supabase
         .from('profiles')
         .select('nama_lengkap, kelas')
@@ -98,7 +96,6 @@ export default function LembarUjianPage() {
         if (profileDb.nama_lengkap) namaSiswaTerbaru = profileDb.nama_lengkap;
         if (profileDb.kelas) {
           kelasSiswaTerbaru = profileDb.kelas.trim().toUpperCase();
-          // Perbarui local storage sekalian agar halaman rekap nilai ikut sinkron memakai spasi
           localStorage.setItem('session_siswa_kelas_lengkap', kelasSiswaTerbaru);
         }
       }
@@ -122,14 +119,13 @@ export default function LembarUjianPage() {
       const totalSoal = listSoalUjian.length;
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
 
-      // 💾 UPSERT KE TABEL NILAI - KELAS UTUH TERFORMAT SPASI SINKRON DENGAN ADMIN
       const { error: errorUpsert } = await supabase
         .from('nilai_siswa')
         .upsert({
           id_siswa: uuidSiswaLogin,      
           id_jadwal: idJadwal,
           nama_siswa: namaSiswaTerbaru,  
-          kelas: kelasSiswaTerbaru, // <--- Data bersih Uppercase utuh menggunakan spasi ("X TKJ 1")
+          kelas: kelasSiswaTerbaru, 
           jumlah_benar: jumlahBenar,
           jumlah_salah: jumlahSalah,
           nilai: nilaiAkhir,
@@ -153,7 +149,7 @@ export default function LembarUjianPage() {
     }
   }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, kelasSiswa, router, submitting]);
 
-  // 1. Validasi Sesi Pengguna & Ambil Soal Berdasarkan Kelas Profiles
+  // 1. Validasi Sesi Pengguna & Ambil Soal
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined') return;
@@ -192,15 +188,13 @@ export default function LembarUjianPage() {
           setNamaSiswa(dataProfil.nama_lengkap || 'Siswa Tanpa Nama');
           
           if (dataProfil.kelas) {
-            // 🛠️ PERBAIKAN 1: Ambil data kelas terupdate dengan spasi ("X TKJ 1")
             kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
             setKelasSiswa(kelasUtuhSiswa);
             localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
 
-            // Ekstrak pecahan kata dari string "X TKJ 1"
             const bagianKelas = kelasUtuhSiswa.split(/\s+/);
-            tingkatKelas = bagianKelas[0] ? bagianKelas[0].trim() : ''; // "X"
-            jurusanTarget = bagianKelas[1] ? bagianKelas[1].trim() : ''; // "TKJ"
+            tingkatKelas = bagianKelas[0] ? bagianKelas[0].trim() : ''; 
+            jurusanTarget = bagianKelas[1] ? bagianKelas[1].trim() : ''; 
           } else {
             setKelasSiswa('UMUM');
           }
@@ -228,7 +222,6 @@ export default function LembarUjianPage() {
             .select('*')
             .eq('id_mapel', mapelIdString);
 
-          // 🛠️ PERBAIKAN 2: Logika pencarian or() diperketat agar mencakup format utuh berspasi
           if (tingkatKelas) {
             querySoal = querySoal.or(`kelas_target.eq."${tingkatKelas}",kelas_target.eq."${kelasUtuhSiswa}",kelas_target.eq.UMUM,kelas_target.is.null`);
           }
@@ -252,7 +245,6 @@ export default function LembarUjianPage() {
 
           if (riwayatLama && riwayatLama.length > 0) {
             const mappingJawaban: { [key: string]: string } = {};
-            row => { mappingJawaban[row.id_soal] = row.jawaban_terpilih; };
             riwayatLama.forEach(row => { mappingJawaban[row.id_soal] = row.jawaban_terpilih; });
             setJawabanSiswa(mappingJawaban);
           }
