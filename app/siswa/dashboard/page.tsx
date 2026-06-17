@@ -344,28 +344,35 @@ export default function DashboardSiswaPage() {
   return (
     <div className="space-y-6 relative">
       
-      {/* BANNER SELAMAT DATANG */}
-      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-2xl text-white shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-black">
-            Selamat Datang <span className="text-yellow-300">{namaSiswa}</span> di {namaSekolah}! 👋
+      {/* 🌟 BANNER SELAMAT DATANG DENGAN GRADASI KEREN & MODERN 🌟 */}
+      <div className="relative overflow-hidden bg-gradient-to-tr from-blue-700 via-indigo-600 to-violet-600 p-7 rounded-2xl text-white shadow-lg shadow-indigo-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* Ornamen Estetik Halus di Latar Belakang Banner */}
+        <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute -left-10 -bottom-10 w-36 h-36 bg-fuchsia-500/20 rounded-full blur-2xl pointer-events-none" />
+        
+        <div className="relative z-10">
+          <h2 className="text-xl font-black tracking-wide leading-tight">
+            Selamat Datang <span className="text-yellow-300 drop-shadow-sm">{namaSiswa}</span> di {namaSekolah}! 👋
           </h2>
-          <p className="text-xs text-blue-100 mt-1">Sistem Ujian Khusus Area Sekolah (Geofencing GPS) aktif.</p>
+          <p className="text-xs text-indigo-100/90 mt-1.5 font-medium flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Sistem Ujian Khusus Area Sekolah (Geofencing GPS) Aktif.
+          </p>
         </div>
 
         {/* CONTROLS PROFILE & LOGOUT */}
-        <div className="flex items-center gap-3 self-start sm:self-auto">
-          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 px-3.5 py-2 rounded-xl shrink-0">
+        <div className="relative z-10 flex items-center gap-3 self-start sm:self-auto">
+          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2 rounded-xl shrink-0 shadow-inner">
             <span className="text-lg">🏫</span>
             <div>
-              <div className="text-[9px] font-bold uppercase tracking-wider text-blue-200">Kelas</div>
+              <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-200">Kelas</div>
               <div className="text-xs font-mono font-black text-yellow-300">{kelasSiswa}</div>
             </div>
           </div>
 
           <button
             onClick={() => setShowLogoutModal(true)}
-            className="flex items-center gap-2 bg-red-500 hover:bg-red-600 border border-red-400/30 px-3.5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition shadow-sm shrink-0"
+            className="flex items-center gap-2 bg-red-500 hover:bg-red-600 hover:scale-[1.02] active:scale-[0.98] border border-red-400/20 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md shrink-0"
           >
             <span>Logout</span> 🚪
           </button>
