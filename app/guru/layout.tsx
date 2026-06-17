@@ -28,7 +28,9 @@ export default function GuruLayout({
         localStorage.removeItem('session_guru_id');
         localStorage.removeItem('session_guru_nip');
         localStorage.removeItem('session_guru_nama');
-        router.push('/login'); 
+        
+        // 🎯 DIUBAH: Kembali ke pintu masuk awal utama
+        router.push('/'); 
       } else {
         setSudahLogin(true);
       }
@@ -108,8 +110,13 @@ export default function GuruLayout({
           type="button"
           onClick={() => {
             if (confirm('Apakah Anda ingin keluar dari ekosistem panel Guru?')) {
-              localStorage.clear(); // Hapus seluruh sisa kredensial di lokal browser
-              router.push('/login'); 
+              if (typeof window !== 'undefined') {
+                localStorage.clear(); // Hapus seluruh sisa kredensial di lokal browser
+                sessionStorage.clear();
+                
+                // 🚀 DIOPTIMALKAN: Paksa lompat ke pintu masuk utama dengan hard refresh
+                window.location.href = '/';
+              }
             }
           }}
           className="w-full bg-red-950/40 hover:bg-red-900/60 text-red-300 p-3 rounded-xl text-[11px] font-black tracking-wider uppercase transition-all border border-red-900/30"

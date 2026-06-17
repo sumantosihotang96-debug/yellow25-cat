@@ -40,6 +40,9 @@ export default function DashboardSiswaPage() {
   const [inputToken, setInputToken] = useState('');
   const [tokenError, setTokenError] = useState('');
 
+  // 🚪 State untuk Handle Modal Konfirmasi Logout Custom
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
   // 📍 State Geolokasi Proteksi Wilayah Sekolah
   const [isDiDalamKawasan, setIsDiDalamKawasan] = useState<boolean | null>(null); 
   const [errorLokasi, setErrorLokasi] = useState<string>('');
@@ -166,18 +169,14 @@ export default function DashboardSiswaPage() {
     return localISOTime;
   };
 
-  // 🚪 FUNGSI LOGOUT SISWA
-  const handleLogout = () => {
-    if (confirm('Apakah Anda yakin ingin keluar dari aplikasi?')) {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('session_siswa_id');
-        localStorage.removeItem('session_siswa_nama');
-        localStorage.removeItem('session_siswa_kelas_lengkap');
-        localStorage.removeItem('session_siswa_tingkat');
-        localStorage.removeItem('session_siswa_jurusan');
-        localStorage.removeItem('session_token_aktif');
-      }
-      router.replace('/login-siswa');
+  // 🚪 FUNGSI LOGOUT SISWA (EKSEKUSI SETELAH KONFIRMASI MODAL)
+  const eksekusiLogout = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.clear(); // Bersihkan semua sisa token / data lokal sekaligus
+      sessionStorage.clear();
+      
+      // 🚀 DIUBAH: Mengarah ke portal root / pintu masuk utama dengan hard refresh
+      window.location.href = '/';
     }
   };
 
@@ -198,7 +197,8 @@ export default function DashboardSiswaPage() {
       const jurusan = localStorage.getItem('session_siswa_jurusan');
 
       if (!id) {
-        router.push('/login-siswa');
+        // 🚀 DIUBAH: Proteksi penendang siswa tanpa sesi mengarah ke portal utama
+        router.push('/');
         return;
       }
 
@@ -252,22 +252,10 @@ export default function DashboardSiswaPage() {
           const kelasSiswaClean = kelasLengkapSiswa.trim().toUpperCase(); // Contoh: "X TKJ 1"
           const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();     // Contoh: "TKJ"
 
-          /**
-           * 💡 LOGIKA FILTER KELAS DAN TINGKAT
-           * Lolos jika: Kolom kelas di db kosong (berlaku massal),
-           * atau nama kelas sama persis (Contoh admin ngetik: "X TKJ 1"),
-           * atau admin hanya mengetik tingkat/angkatan awal ("X") sehingga diikuti spasi.
-           */
           const cocokKelas = !kelasMapelDb || 
                              kelasSiswaClean === kelasMapelDb || 
                              kelasSiswaClean.startsWith(kelasMapelDb + ' ');
 
-          /**
-           * 💡 LOGIKA FILTER JURUSAN
-           * Lolos jika: Kolom jurusan di db kosong, bernilai 'UMUM',
-           * atau kode jurusan mapel sama persis dengan session jurusan siswa,
-           * atau kode jurusan mapel tercantum di dalam nama string kelas lengkap siswa.
-           */
           const cocokJurusan = !jurusanMapelDb || 
                                jurusanMapelDb === 'UMUM' || 
                                jurusanSiswaClean === jurusanMapelDb ||
@@ -356,7 +344,7 @@ export default function DashboardSiswaPage() {
   return (
     <div className="space-y-6 relative">
       
-      {/* BANNER SELAMAT DATANG (DIUBAH MENJADI DINAMIS) */}
+      {/* BANNER SELAMAT DATANG */}
       <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-2xl text-white shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-lg font-black">
@@ -376,7 +364,7 @@ export default function DashboardSiswaPage() {
           </div>
 
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutModal(true)}
             className="flex items-center gap-2 bg-red-500 hover:bg-red-600 border border-red-400/30 px-3.5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition shadow-sm shrink-0"
           >
             <span>Logout</span> 🚪
@@ -469,7 +457,7 @@ export default function DashboardSiswaPage() {
                     </div>
                   </div>
                   
-                  {/* BUTTON VALIDATION CONTROLLER DENGAN PROTEKSI GEOLOKASI */}
+                  {/* BUTTON VALIDATION CONTROLLER */}
                   {sudahDikerjakan ? (
                     <button 
                       disabled
@@ -583,6 +571,36 @@ export default function DashboardSiswaPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🚪 FLOATING MODAL LOGOUT CUSTOM */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full shadow-2xl space-y-4 text-center">
+            <div>
+              <span className="text-3xl">🚪</span>
+              <h3 className="font-black text-gray-900 text-sm uppercase tracking-wide mt-3">Konfirmasi Keluar</h3>
+              <p className="text-xs text-gray-400 mt-1.5">Apakah Anda yakin ingin keluar dari aplikasi {namaSekolah}?</p>
+            </div>
+
+            <div className="flex gap-2 text-xs pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 bg-gray-100 text-gray-600 font-bold p-3 rounded-xl hover:bg-gray-200 transition uppercase tracking-wider"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={eksekusiLogout}
+                className="flex-1 bg-red-500 text-white font-bold p-3 rounded-xl hover:bg-red-600 transition uppercase tracking-wider shadow-sm"
+              >
+                Keluar
+              </button>
+            </div>
           </div>
         </div>
       )}

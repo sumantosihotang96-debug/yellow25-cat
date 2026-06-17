@@ -62,12 +62,23 @@ export default function Sidebar({ role }: SidebarProps) {
     fetchData();
   }, []);
 
-  // 2. Fungsi Keluar (Logout) Aplikasi CBT
+  // 2. Fungsi Keluar (Logout) Aplikasi CBT -> DIPERBAIKI KE PORTAL UTAMA '/'
   const handleLogout = async () => {
     const konfirmasi = confirm('Apakah Anda yakin ingin keluar dari aplikasi CBT?');
     if (!konfirmasi) return;
-    await supabase.auth.signOut();
-    router.push('/login');
+    
+    try {
+      // Bersihkan sisa data session login lokal di browser agar tidak tertinggal
+      if (typeof window !== 'undefined') {
+        localStorage.clear();
+      }
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error("Gagal melakukan signout auth:", error);
+    } finally {
+      // Dilempar kembali ke pintu masuk login paling utama
+      router.push('/');
+    }
   };
 
   // 3. Fungsi Buka-Tutup Menu Dropdown Lipat Admin
@@ -83,7 +94,6 @@ export default function Sidebar({ role }: SidebarProps) {
   };
 
   return (
-    /* PERUBAHAN DI SINI: Ditambahkan kelas `sticky top-0 h-screen` menggantikan `min-h-screen` */
     <div className="w-64 h-screen sticky top-0 bg-gray-900 text-gray-300 flex flex-col justify-between shadow-2xl border-r border-gray-800 shrink-0 z-30">
       <div className="flex flex-col flex-1 min-h-0">
         {/* ================= HEADER BRANDING ================= */}
@@ -114,7 +124,6 @@ export default function Sidebar({ role }: SidebarProps) {
         </div>
 
         {/* ================= DAFTAR MENU UTAMA ================= */}
-        {/* Menggunakan `flex-1 overflow-y-auto` agar jika menu melebihi tinggi layar, area ini saja yang bisa di-scroll */}
         <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto custom-scrollbar">
           
           {/* ---------------- MENUS KHUSUS: ADMIN ---------------- */}

@@ -114,11 +114,12 @@ export default function LoginPage() {
           router.push('/siswa/dashboard');
         } else if (role === 'guru') {
           localStorage.setItem('session_guru_id', user.id);
+          localStorage.setItem('session_guru_nip', user.nomor_induk); // Menyimpan NIP agar terbaca di Dashboard Guru
           localStorage.setItem('session_guru_nama', user.nama_lengkap);
           localStorage.setItem('user_role', 'guru');
 
-          // Alihkan ke dashboard guru
-          router.push('/guru/dashboard');
+          // 🔑 FIX REDIRECT: Dialihkan langsung ke panel root guru '/guru' agar selaras dengan file pengaman
+          router.push('/guru');
         }
       }
 
@@ -270,7 +271,7 @@ export default function LoginPage() {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 text-xs hover:text-gray-600"
                   >
-                    {showPassword ? '👁️' : '🙈'}
+                    {showPassword ? '👁' : '🙈'}
                   </button>
                 </div>
               </div>
