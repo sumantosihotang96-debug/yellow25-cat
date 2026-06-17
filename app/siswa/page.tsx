@@ -21,7 +21,7 @@ interface JadwalSiswa {
 export default function DashboardSiswaPage() {
   const router = useRouter();
   const [namaSiswa, setNamaSiswa] = useState('');
-  const [kelasSiswa, setKelasSiswa] = useState('');
+  const [kelasSiswa, setKelasSiswa] = useState(''); // Menyimpan format lengkap dari localStorage (Contoh: "X TKJ 1")
   const [tingkatSiswa, setTingkatSiswa] = useState('');
   const [jurusanSiswa, setJurusanSiswa] = useState('');
   
@@ -193,7 +193,7 @@ export default function DashboardSiswaPage() {
     if (typeof window !== 'undefined') {
       const id = localStorage.getItem('session_siswa_id');
       const nama = localStorage.getItem('session_siswa_nama');
-      const kelasLengkap = localStorage.getItem('session_siswa_kelas_lengkap');
+      const kelasLengkap = localStorage.getItem('session_siswa_kelas_lengkap'); // Contoh: "X TKJ 1"
       const tingkat = localStorage.getItem('session_siswa_tingkat');
       const jurusan = localStorage.getItem('session_siswa_jurusan');
 
@@ -207,12 +207,13 @@ export default function DashboardSiswaPage() {
       setTingkatSiswa(tingkat || '');
       setJurusanSiswa(jurusan || '');
 
-      fetchDataDashboardLengkap(id, tingkat || '', jurusan || '');
+      // Memasukkan parameter kelasLengkap dan jurusan siswa dengan benar
+      fetchDataDashboardLengkap(id, kelasLengkap || '', jurusan || '');
     }
   }, [router]);
 
   // Fungsi gabungan memuat Jadwal sekaligus status pengerjaan siswa
-  const fetchDataDashboardLengkap = async (siswaId: string, tingkat: string, jurusan: string) => {
+  const fetchDataDashboardLengkap = async (siswaId: string, kelasLengkapSiswa: string, jurusanSiswa: string) => {
     setFetchingUjian(true);
     try {
       const tanggalHariIni = getTanggalHariIni();
@@ -243,13 +244,34 @@ export default function DashboardSiswaPage() {
         const hasilFilter = (dataJadwal as unknown as JadwalSiswa[]).filter((jadwal) => {
           if (!jadwal.mapel) return false;
 
-          const kelasAktif = jadwal.mapel.kelas || '';
-          const jurusanMapel = jadwal.mapel.jurusan || '';
+          // Standardisasi nilai dari Database
+          const kelasMapelDb = (jadwal.mapel.kelas || '').trim().toUpperCase();
+          const jurusanMapelDb = (jadwal.mapel.jurusan || '').trim().toUpperCase();
 
-          const cocokKelas = !kelasAktif || kelasAktif.toUpperCase() === tingkat.toUpperCase();
-          const cocokJurusan = !jurusanMapel || 
-                               jurusanMapel.toUpperCase() === 'UMUM' || 
-                               jurusanMapel.toUpperCase() === jurusan.toUpperCase();
+          // Standardisasi data dari Perangkat/Siswa
+          const kelasSiswaClean = kelasLengkapSiswa.trim().toUpperCase(); // Contoh: "X TKJ 1"
+          const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();     // Contoh: "TKJ"
+
+          /**
+           * 💡 LOGIKA FILTER KELAS DAN TINGKAT
+           * Lolos jika: Kolom kelas di db kosong (berlaku massal),
+           * atau nama kelas sama persis (Contoh admin ngetik: "X TKJ 1"),
+           * atau admin hanya mengetik tingkat/angkatan awal ("X") sehingga diikuti spasi.
+           */
+          const cocokKelas = !kelasMapelDb || 
+                             kelasSiswaClean === kelasMapelDb || 
+                             kelasSiswaClean.startsWith(kelasMapelDb + ' ');
+
+          /**
+           * 💡 LOGIKA FILTER JURUSAN
+           * Lolos jika: Kolom jurusan di db kosong, bernilai 'UMUM',
+           * atau kode jurusan mapel sama persis dengan session jurusan siswa,
+           * atau kode jurusan mapel tercantum di dalam nama string kelas lengkap siswa.
+           */
+          const cocokJurusan = !jurusanMapelDb || 
+                               jurusanMapelDb === 'UMUM' || 
+                               jurusanSiswaClean === jurusanMapelDb ||
+                               kelasSiswaClean.includes(jurusanMapelDb);
 
           return cocokKelas && cocokJurusan;
         });
