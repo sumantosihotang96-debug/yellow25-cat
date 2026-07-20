@@ -43,6 +43,9 @@ export default function BankSoalLengkapPage() {
   const [listSoal, setListSoal] = useState<Soal[]>([]);
   const [loadingList, setLoadingList] = useState(false);
 
+  // STATE: CENTANG & KETERKAITAN SOAL
+  const [soalTerpilihIds, setSoalTerpilihIds] = useState<string[]>([]);
+
   // STATE: Mengontrol sembunyi/tampil form manual
   const [tampilkanFormManual, setTampilkanFormManual] = useState(false);
 
@@ -175,6 +178,7 @@ export default function BankSoalLengkapPage() {
       return;
     }
     setLoadingList(true);
+    setSoalTerpilihIds([]); 
     try {
       const { data, error: supabaseError } = await supabase
         .from('soal')
@@ -182,7 +186,7 @@ export default function BankSoalLengkapPage() {
         .eq('id_mapel', mapelTerpilih)
         .eq('kelas_target', kelasTerpilih)
         .eq('jurusan_target', jurusanTerpilih.toUpperCase().trim())
-        .order('id', { ascending: false });
+        .order('id', { ascending: true });
 
       if (supabaseError) {
         picuNotifikasi(`Gagal mengambil daftar soal: ${supabaseError.message}`, 'gagal');
@@ -206,6 +210,93 @@ export default function BankSoalLengkapPage() {
     setMapelTerpilih(id);
     const m = mapelOptions.find(o => o.id === id);
     if (m) setNamaMapelAktif(m.nama_mapel);
+  };
+
+  // ACAK / RANDOM SOAL
+  const aksiAcakUrutanSoal = () => {
+    if (listSoal.length <= 1) return;
+    const soalDiacak = [...listSoal];
+    for (let i = soalDiacak.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [soalDiacak[i], soalDiacak[j]] = [soalDiacak[j], soalDiacak[i]];
+    }
+    setListSoal(soalDiacak);
+    picuNotifikasi('🔀 Urutan tampilan bank soal berhasil diacak!');
+  };
+
+  // HANDLING CENTANG SOAL BERKAITAN
+  const handleToggleCentangSoal = (id: string) => {
+    setSoalTerpilihIds((prev) => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleCentangSemuaSoal = () => {
+    if (soalTerpilihIds.length === listSoal.length) {
+      setSoalTerpilihIds([]); 
+    } else {
+      setSoalTerpilihIds(listSoal.map(s => s.id)); 
+    }
+  };
+
+  const aksiHapusSoalTerpilihMassal = async () => {
+    if (soalTerpilihIds.length === 0) return;
+    
+    const konfirmasi = confirm(`Apakah Anda yakin ingin menghapus (${soalTerpilihIds.length}) butir soal yang dicentang ini?`);
+    if (!konfirmasi) return;
+
+    setLoadingList(true);
+    try {
+      const { error } = await supabase
+        .from('soal')
+        .delete()
+        .in('id', soalTerpilihIds);
+
+      if (error) throw error;
+      picuNotifikasi(`🗑️ Sukses menghapus ${soalTerpilihIds.length} soal terpilih!`);
+      setSoalTerpilihIds([]);
+      muatDaftarSoal();
+    } catch (error: any) {
+      picuNotifikasi(`❌ Gagal menghapus soal terpilih: ${error.message}`, 'gagal');
+      setLoadingList(false);
+    }
+  };
+
+  // ==========================================
+  // FUNGSI BARU: DOWNLOAD SOAL AKTIF KE EXCEL
+  // ==========================================
+  const handleDownloadSoalKeExcel = () => {
+    if (listSoal.length === 0) {
+      alert('Tidak ada data soal yang bisa didownload.');
+      return;
+    }
+
+    // Transformasi data agar rapi saat dibuka di Excel
+    const dataUnduhan = listSoal.map((soal, index) => ({
+      'NO': index + 1,
+      'PERTANYAAN SOAL': soal.pertanyaan,
+      'OPSI A': soal.opsi_a,
+      'OPSI B': soal.opsi_b,
+      'OPSI C': soal.opsi_c,
+      'OPSI D': soal.opsi_d,
+      'OPSI E': soal.opsi_e || '',
+      'KUNCI JAWABAN (A/B/C/D/E)': soal.jawaban_benar,
+      'URL GAMBAR SOAL': soal.gambar_soal || '-',
+      'URL GAMBAR A': soal.gambar_a || '-',
+      'URL GAMBAR B': soal.gambar_b || '-',
+      'URL GAMBAR C': soal.gambar_c || '-',
+      'URL GAMBAR D': soal.gambar_d || '-',
+      'URL GAMBAR E': soal.gambar_e || '-'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataUnduhan);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bank Soal Ekspor');
+    
+    // Format nama file: Soal_[NamaMapel]_Kelas[X]_Jurusan[UMUM].xlsx
+    const namaFile = `Soal_${namaMapelAktif.replace(/\s+/g, '_')}_Kelas_${kelasTerpilih}_${jurusanTerpilih.toUpperCase().trim()}.xlsx`;
+    XLSX.writeFile(workbook, namaFile);
+    picuNotifikasi('📥 Bank soal berhasil didownload!');
   };
 
   // UNDUH TEMPLATE EXCEL
@@ -303,7 +394,7 @@ export default function BankSoalLengkapPage() {
     }, 100);
   };
 
-  // SIMPAN INPUT MANUAL & UPDATE DATA (Satu Fungsi Dua Kegunaan)
+  // SIMPAN INPUT MANUAL & UPDATE DATA
   const handleSimpanSoal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mapelTerpilih || !isiSoal) return;
@@ -588,18 +679,67 @@ export default function BankSoalLengkapPage() {
 
       {/* 4. DAFTAR SOAL */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
-        <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-          <h2 className="text-sm font-black text-gray-900 uppercase tracking-wider">📋 Daftar Soal Saat Ini</h2>
+        <div className="flex flex-col lg:flex-row justify-between lg:items-center border-b border-gray-100 pb-3 gap-3">
+          <div className="space-y-1">
+            <h2 className="text-sm font-black text-gray-900 uppercase tracking-wider">📋 Daftar Soal Saat Ini</h2>
+            {soalTerpilihIds.length > 0 && (
+              <p className="text-xs text-purple-700 font-bold">
+                ✨ Terpilih: {soalTerpilihIds.length} Soal berkaitan
+              </p>
+            )}
+          </div>
           
-          {listSoal.length > 0 && (
-            <button
-              type="button"
-              onClick={aksiHapusSemuaSoal}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition duration-200 flex items-center gap-1 shadow-sm"
-            >
-              🗑️ Kosongkan Semua Soal ({listSoal.length})
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* BUTTON AKSI MASAL UNTUK SOAL TERPILIH/CENTANG */}
+            {soalTerpilihIds.length > 0 && (
+              <button
+                type="button"
+                onClick={aksiHapusSoalTerpilihMassal}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm"
+              >
+                🗑️ Hapus Centang ({soalTerpilihIds.length})
+              </button>
+            )}
+
+            {listSoal.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={aksiAcakUrutanSoal}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1 shadow-sm"
+                >
+                  🔀 Acak / Random Soal
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={muatDaftarSoal}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm"
+                >
+                  🔄 Reset Urutan
+                </button>
+
+                {/* ========================================== */}
+                {/* FITUR BARU: BUTTON DOWNLOAD SOAL JADI      */}
+                {/* ========================================== */}
+                <button
+                  type="button"
+                  onClick={handleDownloadSoalKeExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1 shadow-sm"
+                >
+                  📥 Download Soal (.xlsx)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={aksiHapusSemuaSoal}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition duration-200 flex items-center gap-1 shadow-sm"
+                >
+                  🗑️ Kosongkan Semua ({listSoal.length})
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {loadingList ? (
@@ -608,11 +748,35 @@ export default function BankSoalLengkapPage() {
           <div className="text-center py-6 text-xs text-gray-400 border border-dashed rounded-xl bg-gray-50/50">Belum ada data soal pada filter pelajaran ini.</div>
         ) : (
           <div className="divide-y divide-gray-100 max-h-[600px] overflow-y-auto pr-2">
+            
+            {/* Opsi Centang Semua Soal */}
+            <div className="py-2 flex items-center gap-2 bg-gray-50 px-3 rounded-lg border text-xs font-bold text-gray-700 mb-2">
+              <input 
+                type="checkbox" 
+                checked={listSoal.length > 0 && soalTerpilihIds.length === listSoal.length}
+                onChange={handleCentangSemuaSoal}
+                className="w-4 h-4 cursor-pointer accent-purple-600"
+              />
+              <span>Pilih / Centang Semua Soal ({listSoal.length})</span>
+            </div>
+
             {listSoal.map((soal, index) => (
-              <div key={soal.id} className="py-4 first:pt-0 last:pb-0 flex items-start justify-between gap-6 text-sm">
+              <div key={soal.id} className={`py-4 flex items-start justify-between gap-4 text-sm px-2 rounded-xl transition ${
+                soalTerpilihIds.includes(soal.id) ? 'bg-purple-50/40 border-l-4 border-purple-500' : 'bg-transparent'
+              }`}>
+                
+                <div className="pt-1 select-none">
+                  <input 
+                    type="checkbox"
+                    checked={soalTerpilihIds.includes(soal.id)}
+                    onChange={() => handleToggleCentangSoal(soal.id)}
+                    className="w-4 h-4 rounded cursor-pointer accent-purple-600 focus:ring-0" 
+                  />
+                </div>
+
                 <div className="space-y-2 flex-1">
                   <div className="font-medium text-gray-900 leading-relaxed">
-                    <span className="text-blue-600 font-bold mr-2">No. {listSoal.length - index}</span> 
+                    <span className="text-blue-600 font-bold mr-2">No. {index + 1}</span> 
                     {soal.pertanyaan}
                   </div>
                   
