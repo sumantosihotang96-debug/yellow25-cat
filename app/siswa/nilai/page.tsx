@@ -7,6 +7,7 @@ import { supabase } from '@/utils/supabase';
 interface RiwayatNilai {
   id: string;
   nilai: number;
+  id_jadwal: string; // ➕ Ditambahkan untuk navigasi ke review jawaban
   created_at: string;
   jadwal: {
     tanggal_ujian: string;
@@ -22,14 +23,14 @@ export default function RekapNilaiSiswaPage() {
   const [listNilai, setListNilai] = useState<RiwayatNilai[]>([]);
   const [fetching, setFetching] = useState(true);
   
-  // 👤 State Profil Siswa (Sama seperti komponen Dashboard)
+  // 👤 State Profil Siswa
   const [namaSiswa, setNamaSiswa] = useState('Memuat nama...');
   const [kelasSiswa, setKelasSiswa] = useState('-'); 
   
   // 🏫 State Pengaturan Global Sekolah
   const [namaSekolah, setNamaSekolah] = useState('Ruang Ujian');
 
-  // Fungsi pengubah huruf pertama menjadi kapital (Standardisasi Tampilan)
+  // Fungsi pengubah huruf pertama menjadi kapital
   const formatNama = (text: string) => {
     if (!text) return '';
     return text
@@ -43,7 +44,6 @@ export default function RekapNilaiSiswaPage() {
     const fetchNilaiSiswa = async () => {
       setFetching(true);
       
-      // Mengambil session yang disimpan saat login / dashboard
       const siswaId = localStorage.getItem('session_siswa_id');
       const namaLocal = localStorage.getItem('session_siswa_nama');
       const kelasLengkap = localStorage.getItem('session_siswa_kelas_lengkap');
@@ -53,14 +53,13 @@ export default function RekapNilaiSiswaPage() {
         return;
       }
 
-      // 1. Prioritaskan nama dari Local Storage agar instan & sama persis seperti Dashboard
       if (namaLocal) {
         setNamaSiswa(formatNama(namaLocal));
       }
       setKelasSiswa(kelasLengkap || '-');
       
       try {
-        // 🏫 2. Ambil Nama Sekolah
+        // 🏫 1. Ambil Nama Sekolah
         const { data: globalConfig } = await supabase
           .from('pengaturan_global')
           .select('nama_sekolah')
@@ -70,12 +69,13 @@ export default function RekapNilaiSiswaPage() {
           setNamaSekolah(globalConfig.nama_sekolah);
         }
 
-        // 📝 3. Ambil Riwayat Nilai
+        // 📝 2. Ambil Riwayat Nilai (ditambahkan id_jadwal)
         const { data, error } = await supabase
           .from('nilai_siswa')
           .select(`
             id,
             nilai,
+            id_jadwal,
             created_at,
             jadwal:id_jadwal(
               tanggal_ujian,
@@ -90,7 +90,7 @@ export default function RekapNilaiSiswaPage() {
           throw error;
         }
 
-        // 👤 4. Validasi nama real-time dari profiles jika di local storage kosong
+        // 👤 3. Validasi nama real-time jika local storage kosong
         if (!namaLocal) {
           const { data: profileData } = await supabase
             .from('profiles')
@@ -105,11 +105,12 @@ export default function RekapNilaiSiswaPage() {
           }
         }
 
-        // 📊 5. Pemetaan Data ke Tabel
+        // 📊 4. Pemetaan Data ke Tabel
         if (data) {
           const formatData = (data as any[]).map((item) => ({
             id: item.id,
             nilai: item.nilai ?? 0,
+            id_jadwal: item.id_jadwal, // ➕ Menyimpan id_jadwal
             created_at: item.created_at,
             jadwal: item.jadwal ? {
               tanggal_ujian: item.jadwal.tanggal_ujian,
@@ -135,14 +136,14 @@ export default function RekapNilaiSiswaPage() {
   return (
     <div className="space-y-6 p-4 md:p-6 max-w-6xl mx-auto">
       
-      {/* 🌟 BANNER HEADER (SINKRON DENGAN DASHBOARD) */}
+      {/* 🌟 BANNER HEADER */}
       <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-6 rounded-2xl text-white shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-xl font-black tracking-tight">
             Rekap Nilai: <span className="text-yellow-300">{namaSiswa}</span> di {namaSekolah}! 👋
           </h2>
           <p className="text-xs text-blue-100 opacity-90">
-            Lihat riwayat perolehan skor hasil ujian yang telah selesai Anda kerjakan.
+            Lihat riwayat perolehan skor dan pembahasan jawaban dari ujian yang telah dikerjakan.
           </p>
         </div>
 
@@ -175,7 +176,7 @@ export default function RekapNilaiSiswaPage() {
                 <th className="p-4">Mata Pelajaran</th>
                 <th className="p-4">Tanggal Ujian</th>
                 <th className="p-4 text-center w-32">Nilai Akhir</th>
-                <th className="p-4 text-center w-36">Status</th>
+                <th className="p-4 text-center w-48">Aksi</th>
               </tr>
             </thead>
             <tbody className="text-gray-700 text-sm divide-y divide-gray-100 font-medium">
@@ -197,10 +198,18 @@ export default function RekapNilaiSiswaPage() {
                     <td className="p-4 text-gray-400 text-center font-mono">{index + 1}</td>
                     
                     <td className="p-4">
-                      <p className="font-bold text-gray-900">{item.jadwal?.mapel?.nama_mapel || 'Tanpa Nama Mapel'}</p>
-                      <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
-                        ID MAPEL: {item.jadwal?.mapel?.id || '-'}
-                      </span>
+                      {/* Klik pada Nama Mapel juga akan membawa siswa ke lembar pembahasan */}
+                      <button 
+                        onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
+                        className="text-left group"
+                      >
+                        <p className="font-bold text-gray-900 group-hover:text-indigo-600 transition">
+                          {item.jadwal?.mapel?.nama_mapel || 'Tanpa Nama Mapel'}
+                        </p>
+                        <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                          ID MAPEL: {item.jadwal?.mapel?.id || '-'}
+                        </span>
+                      </button>
                     </td>
                     
                     <td className="p-4 text-gray-500 font-mono text-xs">
@@ -223,10 +232,14 @@ export default function RekapNilaiSiswaPage() {
                       </span>
                     </td>
                     
+                    {/* 👁️ Kolom Aksi / Tombol Lihat Pembahasan */}
                     <td className="p-4 text-center">
-                      <span className="bg-green-50 text-green-700 text-xs font-bold px-2.5 py-1 rounded-full border border-green-100 shadow-sm">
-                        Selesai
-                      </span>
+                      <button
+                        onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
+                        className="inline-flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold text-xs px-3 py-1.5 rounded-xl border border-indigo-200/60 transition shadow-xs"
+                      >
+                        👁️ Lihat Jawaban
+                      </button>
                     </td>
                   </tr>
                 ))

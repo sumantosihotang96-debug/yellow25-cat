@@ -33,6 +33,7 @@ export default function RekapNilaiAdminPage() {
   // State untuk Banner Notifikasi Berwaktu
   const [notifikasi, setNotifikasi] = useState<{ pesan: string; tipe: 'sukses' | 'gagal' } | null>(null);
 
+  // State Modal Reset Satuan
   const [modalReset, setModalReset] = useState<{
     isOpen: boolean;
     idRecord: string;
@@ -48,6 +49,10 @@ export default function RekapNilaiAdminPage() {
     namaSiswa: '',
     mapel: '',
   });
+
+  // State Modal Reset Masal (Hapus Seluruh Hasil)
+  const [modalResetMasal, setModalResetMasal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (notifikasi) {
@@ -101,11 +106,10 @@ export default function RekapNilaiAdminPage() {
       setListNilai(formatData);
       setFilteredNilai(formatData);
 
-      // 🛠️ PERBAIKAN 1: Bersihkan nama mapel saat dimasukkan ke dalam daftar dropdown filter
       const mapelUnik = Array.from(
         new Set(
           formatData
-            .map((item) => item.jadwal?.mapel?.nama_mapel?.trim()) // Hapus spasi gaib
+            .map((item) => item.jadwal?.mapel?.nama_mapel?.trim())
             .filter((m): m is string => !!m)
         )
       ).sort();
@@ -121,7 +125,6 @@ export default function RekapNilaiAdminPage() {
     fetchNilaiGlobal();
   }, []);
 
-  // 🛠️ PERBAIKAN 2: Logika Penyaringan (Filter) Kebal Spasi dan Huruf Besar-Kecil
   useEffect(() => {
     let hasilSaring = [...listNilai];
 
@@ -142,6 +145,7 @@ export default function RekapNilaiAdminPage() {
     setFilteredNilai(hasilSaring);
   }, [selectedKelas, selectedMapel, listNilai]);
 
+  // Eksekusi Hapus Satuan
   const eksekusiHapusNilaiSiswa = async () => {
     try {
       if (modalReset.idSiswa && modalReset.idJadwal) {
@@ -173,6 +177,54 @@ export default function RekapNilaiAdminPage() {
       });
     } finally {
       setModalReset({ isOpen: false, idRecord: '', idSiswa: '', idJadwal: '', namaSiswa: '', mapel: '' });
+    }
+  };
+
+  // Eksekusi Hapus Seluruh Hasil (Filtered Data)
+  const eksekusiHapusSeluruhHasil = async () => {
+    if (filteredNilai.length === 0) return;
+    setIsDeleting(true);
+
+    try {
+      const idsNilai = filteredNilai.map((item) => item.id);
+
+      // Kumpulkan kombinasi id_siswa & id_jadwal unik untuk menghapus jawaban
+      const pasanganSiswaJadwal = filteredNilai
+        .filter((item) => item.id_siswa && item.id_jadwal)
+        .map((item) => ({ id_siswa: item.id_siswa, id_jadwal: item.id_jadwal }));
+
+      // Hapus jawaban siswa berulang/berdasarkan pasangan
+      for (const item of pasanganSiswaJadwal) {
+        await supabase
+          .from('jawaban_siswa')
+          .delete()
+          .eq('id_siswa', item.id_siswa)
+          .eq('id_jadwal', item.id_jadwal);
+      }
+
+      // Hapus rekaman nilai
+      const { error } = await supabase
+        .from('nilai_siswa')
+        .delete()
+        .in('id', idsNilai);
+
+      if (error) throw error;
+
+      setNotifikasi({
+        pesan: `🔥 Berhasil menghapus ${idsNilai.length} data hasil ujian secara massal!`,
+        tipe: 'sukses'
+      });
+
+      fetchNilaiGlobal();
+    } catch (err: any) {
+      console.error(err.message);
+      setNotifikasi({
+        pesan: `❌ Gagal menghapus seluruh data: ${err.message}`,
+        tipe: 'gagal'
+      });
+    } finally {
+      setIsDeleting(false);
+      setModalResetMasal(false);
     }
   };
 
@@ -246,14 +298,27 @@ export default function RekapNilaiAdminPage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleDownloadExcel}
-          disabled={fetching || filteredNilai.length === 0}
-          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2 w-full md:w-auto"
-        >
-          <span>📥</span> Download Excel
-        </button>
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto">
+          {/* Tombol Hapus Seluruh Hasil */}
+          <button
+            type="button"
+            onClick={() => setModalResetMasal(true)}
+            disabled={fetching || filteredNilai.length === 0}
+            className="bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2 w-full sm:w-auto"
+          >
+            <span>🗑️</span> Hapus Seluruh Hasil ({filteredNilai.length})
+          </button>
+
+          {/* Tombol Download Excel */}
+          <button
+            type="button"
+            onClick={handleDownloadExcel}
+            disabled={fetching || filteredNilai.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2 w-full sm:w-auto"
+          >
+            <span>📥</span> Download Excel
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -312,6 +377,7 @@ export default function RekapNilaiAdminPage() {
         </table>
       </div>
 
+      {/* Modal Reset Single */}
       {modalReset.isOpen && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full shadow-2xl space-y-5 transform scale-100 transition-all duration-200">
@@ -340,6 +406,50 @@ export default function RekapNilaiAdminPage() {
                 className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl transition uppercase tracking-wider shadow-sm"
               >
                 Ya, Reset ➡️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Seluruh Hasil (Massal) */}
+      {modalResetMasal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-md w-full shadow-2xl space-y-5 transform scale-100 transition-all duration-200">
+            <div className="text-center space-y-2">
+              <span className="text-3xl inline-block bg-rose-100 p-3 rounded-full text-rose-600">🔥</span>
+              <h3 className="font-bold text-gray-900 text-lg">Hapus Seluruh Hasil Ujian?</h3>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Tindakan ini akan menghapus <span className="font-bold text-rose-600">{filteredNilai.length} data hasil nilai</span> beserta <span className="font-bold text-rose-600">semua lembar jawaban siswa</span> yang saat ini tampil pada tabel filter:
+              </p>
+              
+              <div className="p-3 bg-gray-50 rounded-xl text-xs space-y-1 text-left border border-gray-200">
+                <div>🏫 <span className="font-semibold text-gray-700">Kelas:</span> {selectedKelas}</div>
+                <div>📖 <span className="font-semibold text-gray-700">Mata Pelajaran:</span> {selectedMapel}</div>
+                <div>📊 <span className="font-semibold text-gray-700">Jumlah Data Terkena Dampak:</span> {filteredNilai.length} siswa</div>
+              </div>
+
+              <div className="p-2 bg-rose-50 rounded-lg text-[11px] font-medium text-rose-800 border border-rose-200 text-left">
+                ⚠️ PERHATIAN: Tindakan ini permanen dan tidak dapat dibatalkan kembali!
+              </div>
+            </div>
+
+            <div className="flex gap-3 text-xs font-semibold">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setModalResetMasal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl transition uppercase tracking-wider disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={eksekusiHapusSeluruhHasil}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl transition uppercase tracking-wider shadow-sm disabled:opacity-50"
+              >
+                {isDeleting ? 'Memproses...' : 'Ya, Hapus Semua 🔥'}
               </button>
             </div>
           </div>
