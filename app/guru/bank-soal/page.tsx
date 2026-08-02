@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase';
 import * as XLSX from 'xlsx';
 
-interface MapelDiampu {
+export interface MapelDiampu {
   id: string;
   nama_mapel: string;
 }
 
-interface Soal {
+export interface Soal {
   id: string;
   id_mapel: string;
   kelas_target: string;
@@ -23,9 +23,10 @@ interface Soal {
   opsi_d: string; gambar_d: string | null;
   opsi_e: string; gambar_e: string | null;
   jawaban_benar: string;
+  group_id?: string | null;
 }
 
-interface BannerNotif {
+export interface BannerNotif {
   tampilkan: boolean;
   pesan: string;
   tipe: 'sukses' | 'gagal';
@@ -33,38 +34,49 @@ interface BannerNotif {
 
 export default function BankSoalLengkapPage() {
   const router = useRouter();
+
+  // STATE FILTER MAPEL & KELAS
   const [mapelOptions, setMapelOptions] = useState<MapelDiampu[]>([]);
   const [mapelTerpilih, setMapelTerpilih] = useState('');
   const [namaMapelAktif, setNamaMapelAktif] = useState('');
-  
   const [kelasTerpilih, setKelasTerpilih] = useState('X');
   const [jurusanTerpilih, setJurusanTerpilih] = useState('UMUM');
-  
+
+  // STATE LIST SOAL & CENTANG
   const [listSoal, setListSoal] = useState<Soal[]>([]);
   const [loadingList, setLoadingList] = useState(false);
-
-  // STATE: CENTANG & KETERKAITAN SOAL
   const [soalTerpilihIds, setSoalTerpilihIds] = useState<string[]>([]);
 
-  // STATE: Mengontrol sembunyi/tampil form manual
-  const [tampilkanFormManual, setTampilkanFormManual] = useState(false);
-
+  // STATE FORM MANUAL & EDIT
   const [idSoalDiedit, setIdSoalDiedit] = useState<string | null>(null);
   const [isiSoal, setIsiSoal] = useState('');
-  const [gambarSoal, setGambarSoal] = useState<File | null>(null);
-  const [previewSoal, setPreviewSoal] = useState('');
-
-  const [opsiA, setOpsiA] = useState(''); const [gambarA, setGambarA] = useState<File | null>(null); const [previewA, setPreviewA] = useState('');
-  const [opsiB, setOpsiB] = useState(''); const [gambarB, setGambarB] = useState<File | null>(null); const [previewB, setPreviewB] = useState('');
-  const [opsiC, setOpsiC] = useState(''); const [gambarC, setGambarC] = useState<File | null>(null); const [previewC, setPreviewC] = useState('');
-  const [opsiD, setOpsiD] = useState(''); const [gambarD, setGambarD] = useState<File | null>(null); const [previewD, setPreviewD] = useState('');
-  const [opsiE, setOpsiE] = useState(''); const [gambarE, setGambarE] = useState<File | null>(null); const [previewE, setPreviewE] = useState('');
-
+  const [opsiA, setOpsiA] = useState('');
+  const [opsiB, setOpsiB] = useState('');
+  const [opsiC, setOpsiC] = useState('');
+  const [opsiD, setOpsiD] = useState('');
+  const [opsiE, setOpsiE] = useState('');
   const [jawabanBenar, setJawabanBenar] = useState('A');
+
+  // STATE GAMBAR (FILE & PREVIEW)
+  const [gambarSoal, setGambarSoal] = useState<File | null>(null);
+  const [gambarA, setGambarA] = useState<File | null>(null);
+  const [gambarB, setGambarB] = useState<File | null>(null);
+  const [gambarC, setGambarC] = useState<File | null>(null);
+  const [gambarD, setGambarD] = useState<File | null>(null);
+  const [gambarE, setGambarE] = useState<File | null>(null);
+
+  const [previewSoal, setPreviewSoal] = useState('');
+  const [previewA, setPreviewA] = useState('');
+  const [previewB, setPreviewB] = useState('');
+  const [previewC, setPreviewC] = useState('');
+  const [previewD, setPreviewD] = useState('');
+  const [previewE, setPreviewE] = useState('');
+
+  // STATE INTERFACE & SISTEM
+  const [tampilkanFormManual, setTampilkanFormManual] = useState(false);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [fetching, setFetching] = useState(true);
-
   const [notif, setNotif] = useState<BannerNotif>({ tampilkan: false, pesan: '', tipe: 'sukses' });
 
   const picuNotifikasi = (pesan: string, tipe: 'sukses' | 'gagal' = 'sukses') => {
@@ -80,61 +92,16 @@ export default function BankSoalLengkapPage() {
     }
   }, [notif.tampilkan]);
 
-  // FUNGSI KOMPRESI GAMBAR (Target Luaran: Maksimal ~70 KB, Format JPEG)
-  const kompresGambar = (file: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = (event) => {
-        const img = new Image();
-        img.src = event.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          const MAX_WIDTH = 1000;
-          if (width > MAX_WIDTH) {
-            height = Math.round((height * MAX_WIDTH) / width);
-            width = MAX_WIDTH;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return reject(new Error('Gagal memuat Context Canvas'));
-          
-          ctx.fillStyle = '#fff';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                console.log(`Ukuran setelah kompresi: ${(blob.size / 1024).toFixed(2)} KB`);
-                resolve(blob);
-              } else {
-                reject(new Error('Gagal kompresi blob'));
-              }
-            },
-            'image/jpeg',
-            0.65
-          );
-        };
-        img.onerror = (err) => reject(err);
-      };
-      reader.onerror = (err) => reject(err);
-    });
-  };
-
-  // 1. Ambil data mapel unik milik guru
+  // 1. AMBIL MAPEL GURU
   useEffect(() => {
     const ambilMapelOtomatis = async () => {
       try {
         if (typeof window !== 'undefined') {
           const idGuru = localStorage.getItem('session_guru_id');
-          if (!idGuru) { router.push('/login'); return; }
+          if (!idGuru) {
+            router.push('/login');
+            return;
+          }
 
           const { data, error } = await supabase
             .from('guru_mapel')
@@ -145,7 +112,8 @@ export default function BankSoalLengkapPage() {
 
           if (data) {
             const mapelUnik: MapelDiampu[] = [];
-            const namaSajaSet = new Set();
+            const namaSajaSet = new Set<string>();
+
             data.forEach((item: any) => {
               if (item.mapel) {
                 const namaBersih = item.mapel.nama_mapel.trim();
@@ -155,6 +123,7 @@ export default function BankSoalLengkapPage() {
                 }
               }
             });
+
             setMapelOptions(mapelUnik);
             if (mapelUnik.length > 0) {
               setMapelTerpilih(mapelUnik[0].id);
@@ -162,25 +131,26 @@ export default function BankSoalLengkapPage() {
             }
           }
         }
-      } catch (err) { 
-        console.error('Gagal mengambil data mapel guru:', err); 
-      } finally { 
-        setFetching(false); 
+      } catch (err) {
+        console.error('Gagal mengambil data mapel guru:', err);
+      } finally {
+        setFetching(false);
       }
     };
     ambilMapelOtomatis();
   }, [router]);
 
-  // 2. Ambil list soal dari database
+  // 2. MUAT DAFTAR SOAL DARI DATABASE
   const muatDaftarSoal = async () => {
-    if (!mapelTerpilih || mapelTerpilih === '') {
+    if (!mapelTerpilih) {
       setListSoal([]);
       return;
     }
     setLoadingList(true);
-    setSoalTerpilihIds([]); 
+    setSoalTerpilihIds([]);
+
     try {
-      const { data, error: supabaseError } = await supabase
+      const { data, error } = await supabase
         .from('soal')
         .select('*')
         .eq('id_mapel', mapelTerpilih)
@@ -188,8 +158,8 @@ export default function BankSoalLengkapPage() {
         .eq('jurusan_target', jurusanTerpilih.toUpperCase().trim())
         .order('id', { ascending: true });
 
-      if (supabaseError) {
-        picuNotifikasi(`Gagal mengambil daftar soal: ${supabaseError.message}`, 'gagal');
+      if (error) {
+        picuNotifikasi(`Gagal mengambil daftar soal: ${error.message}`, 'gagal');
         return;
       }
       setListSoal(data || []);
@@ -201,77 +171,182 @@ export default function BankSoalLengkapPage() {
   };
 
   useEffect(() => {
-    if (mapelTerpilih && mapelTerpilih !== '') {
+    if (mapelTerpilih) {
       muatDaftarSoal();
     }
   }, [mapelTerpilih, kelasTerpilih, jurusanTerpilih]);
 
   const handleMapelChange = (id: string) => {
     setMapelTerpilih(id);
-    const m = mapelOptions.find(o => o.id === id);
+    const m = mapelOptions.find((o) => o.id === id);
     if (m) setNamaMapelAktif(m.nama_mapel);
   };
 
-  // ACAK / RANDOM SOAL
-  const aksiAcakUrutanSoal = () => {
-    if (listSoal.length <= 1) return;
-    const soalDiacak = [...listSoal];
-    for (let i = soalDiacak.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [soalDiacak[i], soalDiacak[j]] = [soalDiacak[j], soalDiacak[i]];
-    }
-    setListSoal(soalDiacak);
-    picuNotifikasi('🔀 Urutan tampilan bank soal berhasil diacak!');
+  // FUNGSI KOMPRESI & UPLOAD GAMBAR
+  const kompresGambar = (file: File, maxKB = 70): Promise<File> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 800;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          let quality = 0.7;
+          let dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+          while (dataUrl.length / 1024 > maxKB && quality > 0.1) {
+            quality -= 0.1;
+            dataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+
+          fetch(dataUrl)
+            .then((res) => res.blob())
+            .then((blob) => {
+              const fileKompres = new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.jpg', {
+                type: 'image/jpeg',
+              });
+              resolve(fileKompres);
+            });
+        };
+      };
+    });
   };
 
-  // HANDLING CENTANG SOAL BERKAITAN
-  const handleToggleCentangSoal = (id: string) => {
-    setSoalTerpilihIds((prev) => 
-      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
-    );
-  };
-
-  const handleCentangSemuaSoal = () => {
-    if (soalTerpilihIds.length === listSoal.length) {
-      setSoalTerpilihIds([]); 
-    } else {
-      setSoalTerpilihIds(listSoal.map(s => s.id)); 
-    }
-  };
-
-  const aksiHapusSoalTerpilihMassal = async () => {
-    if (soalTerpilihIds.length === 0) return;
-    
-    const konfirmasi = confirm(`Apakah Anda yakin ingin menghapus (${soalTerpilihIds.length}) butir soal yang dicentang ini?`);
-    if (!konfirmasi) return;
-
-    setLoadingList(true);
+  const uploadKeStorage = async (file: File, folder: string): Promise<string | null> => {
     try {
-      const { error } = await supabase
-        .from('soal')
-        .delete()
-        .in('id', soalTerpilihIds);
-
+      const fileKompres = await kompresGambar(file, 70);
+      const namaFile = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+      const { error } = await supabase.storage.from('gambar_soal').upload(namaFile, fileKompres);
       if (error) throw error;
-      picuNotifikasi(`🗑️ Sukses menghapus ${soalTerpilihIds.length} soal terpilih!`);
-      setSoalTerpilihIds([]);
-      muatDaftarSoal();
-    } catch (error: any) {
-      picuNotifikasi(`❌ Gagal menghapus soal terpilih: ${error.message}`, 'gagal');
-      setLoadingList(false);
+      const { data } = supabase.storage.from('gambar_soal').getPublicUrl(namaFile);
+      return data.publicUrl;
+    } catch (err: any) {
+      console.error('Gagal upload gambar:', err.message);
+      return null;
     }
   };
 
-  // ==========================================
-  // FUNGSI BARU: DOWNLOAD SOAL AKTIF KE EXCEL
-  // ==========================================
+  const handleFileChange = (
+    file: File | undefined,
+    setFileState: (f: File | null) => void,
+    setPreviewState: (p: string) => void
+  ) => {
+    if (!file) return;
+    setFileState(file);
+    setPreviewState(URL.createObjectURL(file));
+  };
+
+  const bersihkanForm = () => {
+    setIdSoalDiedit(null);
+    setIsiSoal('');
+    setOpsiA(''); setOpsiB(''); setOpsiC(''); setOpsiD(''); setOpsiE('');
+    setJawabanBenar('A');
+    setGambarSoal(null); setGambarA(null); setGambarB(null); setGambarC(null); setGambarD(null); setGambarE(null);
+    setPreviewSoal(''); setPreviewA(''); setPreviewB(''); setPreviewC(''); setPreviewD(''); setPreviewE('');
+  };
+
+  const aksiPicuTambahManualBaru = () => {
+    bersihkanForm();
+    setTampilkanFormManual(true);
+  };
+
+  const aksiPilihEditSoal = (soal: Soal) => {
+    setIdSoalDiedit(soal.id);
+    setIsiSoal(soal.pertanyaan);
+    setOpsiA(soal.opsi_a);
+    setOpsiB(soal.opsi_b);
+    setOpsiC(soal.opsi_c);
+    setOpsiD(soal.opsi_d);
+    setOpsiE(soal.opsi_e || '');
+    setJawabanBenar(soal.jawaban_benar);
+
+    setPreviewSoal(soal.gambar_soal || '');
+    setPreviewA(soal.gambar_a || '');
+    setPreviewB(soal.gambar_b || '');
+    setPreviewC(soal.gambar_c || '');
+    setPreviewD(soal.gambar_d || '');
+    setPreviewE(soal.gambar_e || '');
+
+    setGambarSoal(null); setGambarA(null); setGambarB(null); setGambarC(null); setGambarD(null); setGambarE(null);
+    setTampilkanFormManual(true);
+  };
+
+  const handleSimpanSoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mapelTerpilih) return picuNotifikasi('Pilih mata pelajaran terlebih dahulu.', 'gagal');
+    setLoading(true);
+
+    try {
+      const urlGambarSoal = gambarSoal ? await uploadKeStorage(gambarSoal, 'soal') : previewSoal || null;
+      const urlGambarA = gambarA ? await uploadKeStorage(gambarA, 'opsi') : previewA || null;
+      const urlGambarB = gambarB ? await uploadKeStorage(gambarB, 'opsi') : previewB || null;
+      const urlGambarC = gambarC ? await uploadKeStorage(gambarC, 'opsi') : previewC || null;
+      const urlGambarD = gambarD ? await uploadKeStorage(gambarD, 'opsi') : previewD || null;
+      const urlGambarE = gambarE ? await uploadKeStorage(gambarE, 'opsi') : previewE || null;
+
+      const payload = {
+        id_mapel: mapelTerpilih,
+        kelas_target: kelasTerpilih,
+        jurusan_target: jurusanTerpilih.toUpperCase().trim(),
+        pertanyaan: isiSoal,
+        opsi_a: opsiA,
+        opsi_b: opsiB,
+        opsi_c: opsiC,
+        opsi_d: opsiD,
+        opsi_e: opsiE,
+        jawaban_benar: jawabanBenar,
+        gambar_soal: urlGambarSoal,
+        gambar_a: urlGambarA,
+        gambar_b: urlGambarB,
+        gambar_c: urlGambarC,
+        gambar_d: urlGambarD,
+        gambar_e: urlGambarE,
+      };
+
+      if (idSoalDiedit) {
+        const { error } = await supabase.from('soal').update(payload).eq('id', idSoalDiedit);
+        if (error) throw error;
+        picuNotifikasi('✅ Soal berhasil diperbarui!');
+      } else {
+        const { error } = await supabase.from('soal').insert([payload]);
+        if (error) throw error;
+        picuNotifikasi('✅ Soal baru berhasil disimpan!');
+      }
+
+      bersihkanForm();
+      muatDaftarSoal();
+    } catch (err: any) {
+      picuNotifikasi(`Gagal menyimpan soal: ${err.message}`, 'gagal');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // METODE EXCEL: EXPORT & TEMPLATE
   const handleDownloadSoalKeExcel = () => {
     if (listSoal.length === 0) {
       alert('Tidak ada data soal yang bisa didownload.');
       return;
     }
 
-    // Transformasi data agar rapi saat dibuka di Excel
     const dataUnduhan = listSoal.map((soal, index) => ({
       'NO': index + 1,
       'PERTANYAAN SOAL': soal.pertanyaan,
@@ -292,14 +367,12 @@ export default function BankSoalLengkapPage() {
     const worksheet = XLSX.utils.json_to_sheet(dataUnduhan);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Bank Soal Ekspor');
-    
-    // Format nama file: Soal_[NamaMapel]_Kelas[X]_Jurusan[UMUM].xlsx
+
     const namaFile = `Soal_${namaMapelAktif.replace(/\s+/g, '_')}_Kelas_${kelasTerpilih}_${jurusanTerpilih.toUpperCase().trim()}.xlsx`;
     XLSX.writeFile(workbook, namaFile);
     picuNotifikasi('📥 Bank soal berhasil didownload!');
   };
 
-  // UNDUH TEMPLATE EXCEL
   const handleUnduhTemplate = () => {
     if (!mapelTerpilih) return picuNotifikasi('Pilih mapel dulu.', 'gagal');
     const dataTemplate = [{
@@ -313,11 +386,12 @@ export default function BankSoalLengkapPage() {
     XLSX.writeFile(workbook, `Template_${namaMapelAktif.replace(/\s+/g, '_')}.xlsx`);
   };
 
-  // IMPORT FILE EXCEL
+  // METODE EXCEL: IMPORT
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !mapelTerpilih) return;
     setImporting(true);
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
@@ -327,9 +401,15 @@ export default function BankSoalLengkapPage() {
         if (barisData.length === 0) return picuNotifikasi('File Excel kosong.', 'gagal');
 
         const paketSoal = barisData.map((row: any) => ({
-          id_mapel: mapelTerpilih, kelas_target: kelasTerpilih, jurusan_target: jurusanTerpilih.toUpperCase().trim(),
+          id_mapel: mapelTerpilih,
+          kelas_target: kelasTerpilih,
+          jurusan_target: jurusanTerpilih.toUpperCase().trim(),
           pertanyaan: row['PERTANYAAN SOAL'] || '',
-          opsi_a: row['OPSI A'] || '', opsi_b: row['OPSI B'] || '', opsi_c: row['OPSI C'] || '', opsi_d: row['OPSI D'] || '', opsi_e: row['OPSI E'] || '',
+          opsi_a: row['OPSI A'] || '',
+          opsi_b: row['OPSI B'] || '',
+          opsi_c: row['OPSI C'] || '',
+          opsi_d: row['OPSI D'] || '',
+          opsi_e: row['OPSI E'] || '',
           jawaban_benar: (row['KUNCI JAWABAN (A/B/C/D/E)'] || 'A').toUpperCase().trim(),
           gambar_soal: null, gambar_a: null, gambar_b: null, gambar_c: null, gambar_d: null, gambar_e: null
         }));
@@ -338,171 +418,114 @@ export default function BankSoalLengkapPage() {
         if (error) throw error;
         picuNotifikasi('🎉 Berhasil mengimpor soal!');
         muatDaftarSoal();
-      } catch (err: any) { 
-        picuNotifikasi(`Gagal: ${err.message}`, 'gagal'); 
-      } finally { 
-        setImporting(false); e.target.value = ''; 
+      } catch (err: any) {
+        picuNotifikasi(`Gagal: ${err.message}`, 'gagal');
+      } finally {
+        setImporting(false);
+        e.target.value = '';
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  const handleFileChange = (file: File | undefined, setFile: (f: File | null) => void, setPreview: (s: string) => void) => {
-    if (file) { 
-      setFile(file); 
-      setPreview(URL.createObjectURL(file)); 
+  // MANAJEMEN CENTANG & AKSI MASSAL
+  const handleToggleCentangSoal = (id: string) => {
+    setSoalTerpilihIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleCentangSemuaSoal = () => {
+    if (soalTerpilihIds.length === listSoal.length) {
+      setSoalTerpilihIds([]);
+    } else {
+      setSoalTerpilihIds(listSoal.map((s) => s.id));
     }
-  };
-
-  // UPLOAD STORAGE DENGAN SYSTEM AUTO COMPRESS KECIL (~70 KB)
-  const uploadKeStorage = async (file: File | null, prefix: string, currentPreviewUrl: string): Promise<string | null> => {
-    if (!file) {
-      return currentPreviewUrl.startsWith('http') ? currentPreviewUrl : null;
-    }
-    
-    try {
-      const blobKompresi = await kompresGambar(file);
-      const fileName = `${prefix}-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
-
-      const { error } = await supabase.storage
-        .from('soal-images')
-        .upload(fileName, blobKompresi, { contentType: 'image/jpeg' });
-        
-      if (error) throw error;
-
-      const { data } = supabase.storage.from('soal-images').getPublicUrl(fileName);
-      return data.publicUrl || null;
-    } catch (err) {
-      console.error('Gagal Upload & Kompresi:', err);
-      return null;
-    }
-  };
-
-  const bersihkanForm = () => {
-    setIdSoalDiedit(null);
-    setIsiSoal(''); setOpsiA(''); setOpsiB(''); setOpsiC(''); setOpsiD(''); setOpsiE('');
-    setGambarSoal(null); setGambarA(null); setGambarB(null); setGambarC(null); setGambarD(null); setGambarE(null);
-    setPreviewSoal(''); setPreviewA(''); setPreviewB(''); setPreviewC(''); setPreviewD(''); setPreviewE('');
-    setJawabanBenar('A');
-  };
-
-  const aksiPicuTambahManualBaru = () => {
-    bersihkanForm();
-    setTampilkanFormManual(true);
-    setTimeout(() => {
-      window.scrollTo({ top: 400, behavior: 'smooth' });
-    }, 100);
-  };
-
-  // SIMPAN INPUT MANUAL & UPDATE DATA
-  const handleSimpanSoal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mapelTerpilih || !isiSoal) return;
-    setLoading(true);
-
-    try {
-      const urlGambarSoal = await uploadKeStorage(gambarSoal, 'soal', previewSoal);
-      const urlGambarA = await uploadKeStorage(gambarA, 'opsiA', previewA);
-      const urlGambarB = await uploadKeStorage(gambarB, 'opsiB', previewB);
-      const urlGambarC = await uploadKeStorage(gambarC, 'opsiC', previewC);
-      const urlGambarD = await uploadKeStorage(gambarD, 'opsiD', previewD);
-      const urlGambarE = await uploadKeStorage(gambarE, 'opsiE', previewE);
-
-      const payloadData = {
-        id_mapel: mapelTerpilih, kelas_target: kelasTerpilih, jurusan_target: jurusanTerpilih.toUpperCase().trim(),
-        pertanyaan: isiSoal, gambar_soal: urlGambarSoal,
-        opsi_a: opsiA, gambar_a: urlGambarA, opsi_b: opsiB, gambar_b: urlGambarB,
-        opsi_c: opsiC, gambar_c: urlGambarC, opsi_d: opsiD, gambar_d: urlGambarD,
-        opsi_e: opsiE, gambar_e: urlGambarE, jawaban_benar: jawabanBenar
-      };
-
-      if (idSoalDiedit) {
-        const { error } = await supabase.from('soal').update(payloadData).eq('id', idSoalDiedit);
-        if (error) throw error;
-        picuNotifikasi('🎉 Soal & Gambar Berhasil Diperbarui!');
-      } else {
-        const { error } = await supabase.from('soal').insert([payloadData]);
-        if (error) throw error;
-        picuNotifikasi('🎉 Soal Baru Berhasil Disimpan!');
-      }
-
-      bersihkanForm();
-      setTampilkanFormManual(false); 
-      muatDaftarSoal();
-    } catch (error: any) { 
-      picuNotifikasi(`❌ Gagal: ${error.message}`, 'gagal'); 
-    } finally { 
-      setLoading(false); 
-    }
-  };
-
-  const aksiPilihEditSoal = (soal: Soal) => {
-    setTampilkanFormManual(true); 
-    setIdSoalDiedit(soal.id);
-    setIsiSoal(soal.pertanyaan);
-    setPreviewSoal(soal.gambar_soal || '');
-    setOpsiA(soal.opsi_a); setPreviewA(soal.gambar_a || '');
-    setOpsiB(soal.opsi_b); setPreviewB(soal.gambar_b || '');
-    setOpsiC(soal.opsi_c); setPreviewC(soal.gambar_c || '');
-    setOpsiD(soal.opsi_d); setPreviewD(soal.gambar_d || '');
-    setOpsiE(soal.opsi_e || ''); setPreviewE(soal.gambar_e || '');
-    setJawabanBenar(soal.jawaban_benar);
-    
-    setTimeout(() => {
-      window.scrollTo({ top: 400, behavior: 'smooth' });
-    }, 100);
   };
 
   const aksiHapusSoal = async (id: string) => {
-    const konfirmasi = confirm('Apakah Anda yakin ingin menghapus butir soal ini?');
-    if (!konfirmasi) return;
-
+    if (!confirm('Apakah Anda yakin ingin menghapus soal ini?')) return;
     try {
       const { error } = await supabase.from('soal').delete().eq('id', id);
       if (error) throw error;
-      picuNotifikasi('🗑️ Soal berhasil dihapus!');
-      if (idSoalDiedit === id) bersihkanForm();
+      picuNotifikasi('🗑️ Soal berhasil dihapus.');
       muatDaftarSoal();
-    } catch (error: any) {
-      picuNotifikasi(`❌ Gagal: ${error.message}`, 'gagal');
+    } catch (err: any) {
+      picuNotifikasi(`Gagal menghapus soal: ${err.message}`, 'gagal');
+    }
+  };
+
+  const aksiHapusSoalTerpilihMassal = async () => {
+    if (soalTerpilihIds.length === 0) return;
+    if (!confirm(`Yakin ingin menghapus ${soalTerpilihIds.length} soal terpilih?`)) return;
+    try {
+      const { error } = await supabase.from('soal').delete().in('id', soalTerpilihIds);
+      if (error) throw error;
+      picuNotifikasi(`🗑️ Berhasil menghapus ${soalTerpilihIds.length} soal.`);
+      muatDaftarSoal();
+    } catch (err: any) {
+      picuNotifikasi(`Gagal hapus massal: ${err.message}`, 'gagal');
     }
   };
 
   const aksiHapusSemuaSoal = async () => {
-    if (listSoal.length === 0) {
-      alert('Tidak ada data soal yang bisa dihapus pada filter ini.');
-      return;
+    if (listSoal.length === 0) return;
+    if (!confirm(`PERINGATAN! Anda akan menghapus SELURUH ${listSoal.length} soal pada filter ini. Lanjutkan?`)) return;
+    try {
+      const ids = listSoal.map((s) => s.id);
+      const { error } = await supabase.from('soal').delete().in('id', ids);
+      if (error) throw error;
+      picuNotifikasi('🗑️ Seluruh soal pada filter ini telah dikosongkan.');
+      muatDaftarSoal();
+    } catch (err: any) {
+      picuNotifikasi(`Gagal mengosongkan soal: ${err.message}`, 'gagal');
     }
+  };
 
-    const konfirmasi1 = confirm(`⚠️ PERINGATAN: Anda akan menghapus ALL / SEMUA (${listSoal.length}) soal untuk mata pelajaran "${namaMapelAktif}" Kelas ${kelasTerpilih} - ${jurusanTerpilih}.\n\nApakah Anda yakin?`);
-    if (!konfirmasi1) return;
+  const aksiAcakUrutanSoal = () => {
+    const acak = [...listSoal].sort(() => Math.random() - 0.5);
+    setListSoal(acak);
+    picuNotifikasi('🔀 Tampilan daftar soal berhasil diacak.');
+  };
 
-    const konfirmasi2 = confirm('Tindakan ini tidak bisa dibatalkan! Ketik "OK" jika Anda benar-benar yakin ingin membersihkan data.');
-    if (!konfirmasi2) return;
-
-    setLoadingList(true);
+  // FITUR PENGIKAT / GROUPING SOAL
+  const aksiIkatSoalTerpilih = async () => {
+    if (soalTerpilihIds.length < 2) {
+      return picuNotifikasi('Pilih minimal 2 soal untuk diikat menjadi satu grup.', 'gagal');
+    }
+    const groupIdBaru = crypto.randomUUID();
     try {
       const { error } = await supabase
         .from('soal')
-        .delete()
-        .eq('id_mapel', mapelTerpilih)
-        .eq('kelas_target', kelasTerpilih)
-        .eq('jurusan_target', jurusanTerpilih.toUpperCase().trim());
+        .update({ group_id: groupIdBaru })
+        .in('id', soalTerpilihIds);
 
       if (error) throw error;
-
-      picuNotifikasi(`🗑️ Sukses menghapus ${listSoal.length} data soal!`);
-      bersihkanForm();
+      picuNotifikasi(`🔗 Berhasil mengikat ${soalTerpilihIds.length} soal ke dalam satu grup!`);
       muatDaftarSoal();
-    } catch (error: any) {
-      picuNotifikasi(`❌ Gagal menghapus massal: ${error.message}`, 'gagal');
-      setLoadingList(false);
+    } catch (err: any) {
+      picuNotifikasi(`Gagal mengikat soal: ${err.message}`, 'gagal');
+    }
+  };
+
+  const aksiLepasIkatanSoalTerpilih = async () => {
+    if (soalTerpilihIds.length === 0) return;
+    try {
+      const { error } = await supabase
+        .from('soal')
+        .update({ group_id: null })
+        .in('id', soalTerpilihIds);
+
+      if (error) throw error;
+      picuNotifikasi(`🔓 Ikatan grup dilepas untuk ${soalTerpilihIds.length} soal terpilih.`);
+      muatDaftarSoal();
+    } catch (err: any) {
+      picuNotifikasi(`Gagal melepas ikatan: ${err.message}`, 'gagal');
     }
   };
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 relative">
-      
       {/* NOTIFIKASI BANNER */}
       {notif.tampilkan && (
         <div className={`fixed top-5 right-5 z-50 p-4 rounded-xl shadow-xl flex items-center justify-between gap-4 max-w-sm border ${
@@ -512,35 +535,45 @@ export default function BankSoalLengkapPage() {
           <button onClick={() => setNotif((prev) => ({ ...prev, tampilkan: false }))} className="text-xs font-black opacity-50 px-1">✕</button>
         </div>
       )}
-      
-      {/* 1. FILTER */}
+
+      {/* 1. FILTER HEADER */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
         <h1 className="text-xl font-black text-gray-900">Pusat Bank Soal Guru</h1>
         <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm font-bold text-gray-800">
           <div>
             <label className="block text-xs text-blue-900 mb-1">Mata Pelajaran</label>
-            {fetching ? <div className="text-xs text-gray-400">Loading...</div> : (
+            {fetching ? (
+              <div className="text-xs text-gray-400">Loading...</div>
+            ) : (
               <select value={mapelTerpilih} onChange={(e) => handleMapelChange(e.target.value)} className="w-full p-2.5 border rounded-xl bg-white outline-none">
-                {mapelOptions.map((m) => <option key={m.id} value={m.id}>{m.nama_mapel}</option>)}
+                {mapelOptions.map((m) => (
+                  <option key={m.id} value={m.id}>{m.nama_mapel}</option>
+                ))}
               </select>
             )}
           </div>
-          <div><label className="block text-xs text-blue-900 mb-1">Target Kelas</label>
+          <div>
+            <label className="block text-xs text-blue-900 mb-1">Target Kelas</label>
             <select value={kelasTerpilih} onChange={(e) => setKelasTerpilih(e.target.value)} className="w-full p-2.5 border rounded-xl bg-white outline-none">
-              <option value="X">Kelas X</option><option value="XI">Kelas XI</option><option value="XII">Kelas XII</option>
+              <option value="X">Kelas X</option>
+              <option value="XI">Kelas XI</option>
+              <option value="XII">Kelas XII</option>
             </select>
           </div>
-          <div><label className="block text-xs text-blue-900 mb-1">Target Jurusan</label>
+          <div>
+            <label className="block text-xs text-blue-900 mb-1">Target Jurusan</label>
             <input type="text" required value={jurusanTerpilih} onChange={(e) => setJurusanTerpilih(e.target.value)} className="w-full p-2.5 border rounded-xl bg-white outline-none uppercase" />
           </div>
         </div>
       </div>
 
-      {/* 2. EXCEL */}
+      {/* 2. KONTROL EXCEL */}
       <div className="bg-amber-50/40 p-6 rounded-2xl border border-amber-200/70 space-y-4">
         <h2 className="text-sm font-black text-amber-900 uppercase tracking-wider">📥 Metode A: Import Massal dari Excel</h2>
         <div className="flex flex-col sm:flex-row gap-3">
-          <button type="button" onClick={handleUnduhTemplate} className="bg-white hover:bg-gray-50 text-gray-700 font-bold px-4 py-2.5 rounded-xl text-xs border border-gray-300 shadow-sm">📋 Unduh Template Excel</button>
+          <button type="button" onClick={handleUnduhTemplate} className="bg-white hover:bg-gray-50 text-gray-700 font-bold px-4 py-2.5 rounded-xl text-xs border border-gray-300 shadow-sm">
+            📋 Unduh Template Excel
+          </button>
           <div className="flex-1 relative flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs shadow-sm p-2.5 cursor-pointer">
             <span>{importing ? '⏳ Mengurai file...' : '🚀 Pilih & Import Excel'}</span>
             <input type="file" accept=".xlsx, .xls" disabled={importing} onChange={handleImportExcel} className="absolute inset-0 opacity-0 cursor-pointer" />
@@ -594,7 +627,7 @@ export default function BankSoalLengkapPage() {
                 <input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarSoal, setPreviewSoal)} />
               </div>
               {previewSoal && <div className="p-2 border rounded-xl flex justify-center bg-gray-50 relative">
-                <img src={previewSoal} className="h-48 object-contain" />
+                <img src={previewSoal} className="h-48 object-contain" alt="Preview Soal" />
                 <button type="button" onClick={() => setPreviewSoal('')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-md text-[10px] font-bold">Hapus Gambar</button>
               </div>}
             </div>
@@ -609,7 +642,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN A</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarA, setPreviewA)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiA} onChange={(e) => setOpsiA(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewA && <div className="relative inline-block mt-2"><img src={previewA} className="h-20 object-contain rounded border bg-white" /><button type="button" onClick={() => setPreviewA('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewA && <div className="relative inline-block mt-2"><img src={previewA} className="h-20 object-contain rounded border bg-white" alt="Opsi A" /><button type="button" onClick={() => setPreviewA('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi B */}
@@ -618,7 +651,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN B</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarB, setPreviewB)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiB} onChange={(e) => setOpsiB(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewB && <div className="relative inline-block mt-2"><img src={previewB} className="h-20 object-contain rounded border bg-white" /><button type="button" onClick={() => setPreviewB('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewB && <div className="relative inline-block mt-2"><img src={previewB} className="h-20 object-contain rounded border bg-white" alt="Opsi B" /><button type="button" onClick={() => setPreviewB('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi C */}
@@ -627,7 +660,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN C</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarC, setPreviewC)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiC} onChange={(e) => setOpsiC(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewC && <div className="relative inline-block mt-2"><img src={previewC} className="h-20 object-contain rounded border bg-white" /><button type="button" onClick={() => setPreviewC('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewC && <div className="relative inline-block mt-2"><img src={previewC} className="h-20 object-contain rounded border bg-white" alt="Opsi C" /><button type="button" onClick={() => setPreviewC('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi D */}
@@ -636,7 +669,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN D</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarD, setPreviewD)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiD} onChange={(e) => setOpsiD(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewD && <div className="relative inline-block mt-2"><img src={previewD} className="h-20 object-contain rounded border bg-white" /><button type="button" onClick={() => setPreviewD('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewD && <div className="relative inline-block mt-2"><img src={previewD} className="h-20 object-contain rounded border bg-white" alt="Opsi D" /><button type="button" onClick={() => setPreviewD('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi E */}
@@ -645,7 +678,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN E</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarE, setPreviewE)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiE} onChange={(e) => setOpsiE(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewE && <div className="relative inline-block mt-2"><img src={previewE} className="h-20 object-contain rounded border bg-white" /><button type="button" onClick={() => setPreviewE('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewE && <div className="relative inline-block mt-2"><img src={previewE} className="h-20 object-contain rounded border bg-white" alt="Opsi E" /><button type="button" onClick={() => setPreviewE('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
               </div>
             </div>
@@ -690,15 +723,31 @@ export default function BankSoalLengkapPage() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            {/* BUTTON AKSI MASAL UNTUK SOAL TERPILIH/CENTANG */}
+            {/* BUTTON AKSI MASSAL UNTUK SOAL TERPILIH/CENTANG */}
             {soalTerpilihIds.length > 0 && (
-              <button
-                type="button"
-                onClick={aksiHapusSoalTerpilihMassal}
-                className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm"
-              >
-                🗑️ Hapus Centang ({soalTerpilihIds.length})
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={aksiIkatSoalTerpilih}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-1"
+                >
+                  🔗 Ikat Soal Terpilih
+                </button>
+                <button
+                  type="button"
+                  onClick={aksiLepasIkatanSoalTerpilih}
+                  className="bg-gray-600 hover:bg-gray-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm flex items-center gap-1"
+                >
+                  🔓 Lepas Ikatan
+                </button>
+                <button
+                  type="button"
+                  onClick={aksiHapusSoalTerpilihMassal}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm"
+                >
+                  🗑️ Hapus Centang ({soalTerpilihIds.length})
+                </button>
+              </>
             )}
 
             {listSoal.length > 0 && (
@@ -708,25 +757,7 @@ export default function BankSoalLengkapPage() {
                   onClick={aksiAcakUrutanSoal}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1 shadow-sm"
                 >
-                  🔀 Acak / Random Soal
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={muatDaftarSoal}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-3 py-2 rounded-xl text-xs transition shadow-sm"
-                >
-                  🔄 Reset Urutan
-                </button>
-
-                {/* ========================================== */}
-                {/* FITUR BARU: BUTTON DOWNLOAD SOAL JADI      */}
-                {/* ========================================== */}
-                <button
-                  type="button"
-                  onClick={handleDownloadSoalKeExcel}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1 shadow-sm"
-                >
+ 
                   📥 Download Soal (.xlsx)
                 </button>
 
@@ -781,6 +812,11 @@ export default function BankSoalLengkapPage() {
                   </div>
                   
                   <div className="flex flex-wrap gap-2 pt-1">
+                    {soal.group_id && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        🔗 Terikat (Grup: {soal.group_id.substring(0, 8)})
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${soal.gambar_soal ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-100 text-gray-400'}`}>
                       {soal.gambar_soal ? '🖼️ Ada Gambar Soal' : '❌ Tanpa Gambar Soal'}
                     </span>

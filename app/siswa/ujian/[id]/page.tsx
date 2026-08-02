@@ -32,12 +32,25 @@ interface DetailJadwal {
     nama_mapel: string;
     kelas: string | null;
     jurusan: string | null;
+    acak_soal?: boolean;
   } | null;
 }
+
+// Helper Pengacakan Soal (Fisher-Yates)
+const acakArray = <T,>(array: T[]): T[] => {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
 
 export default function LembarUjianPage() {
   const router = useRouter();
   const params = useParams();
+  
+  // Mengambil [id] langsung dari rute dinamis URL
   const idJadwal = params?.id as string;
 
   const [namaSiswa, setNamaSiswa] = useState<string>('');
@@ -52,11 +65,9 @@ export default function LembarUjianPage() {
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Batas Pelanggaran Dinamis dari Database (Default 3)
   const [maxPelanggaran, setMaxPelanggaran] = useState<number>(3);
   const [hasAgreedRules, setHasAgreedRules] = useState(false);
 
-  // Restore Pelanggaran dari LocalStorage
   const [pelanggaranCount, setPelanggaranCount] = useState<number>(() => {
     if (typeof window !== 'undefined' && idJadwal) {
       const savedCount = localStorage.getItem(`pelanggaran_${idJadwal}`);
@@ -71,7 +82,6 @@ export default function LembarUjianPage() {
   const [isForceSubmitted, setIsForceSubmitted] = useState(false);
   const [soalBelumDijawab, setSoalBelumDijawab] = useState<number[]>([]);
 
-  // Ref Guard Interaksi User
   const isInteractingRef = useRef(false);
 
   // 📈 EVALUASI SKOR AKHIR DAN SIMPAN
@@ -137,7 +147,6 @@ export default function LembarUjianPage() {
           created_at: new Date().toISOString()
         }, { onConflict: 'id_siswa,id_jadwal' });
 
-      // Clean backup lokal jika sukses submit
       localStorage.removeItem(`backup_jawaban_${idJadwal}`);
       localStorage.removeItem(`pelanggaran_${idJadwal}`);
 
@@ -154,7 +163,7 @@ export default function LembarUjianPage() {
     }
   }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting]);
 
-  // 1. Validasi Sesi, Load Pengaturan Global, & Ambil Soal Ujian
+  // 1. Validasi Sesi & Fetch Data
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined' || !idJadwal) return;
@@ -212,7 +221,7 @@ export default function LembarUjianPage() {
 
         const { data: dataJadwal, error: errorJadwal } = await supabase
           .from('jadwal_ujian')
-          .select('id, mapel_id, tanggal_ujian, jam_mulai, durasi_menit, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan)')
+          .select('id, mapel_id, tanggal_ujian, jam_mulai, durasi_menit, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan, acak_soal)')
           .eq('id', idJadwal)
           .maybeSingle();
 
@@ -262,7 +271,14 @@ export default function LembarUjianPage() {
         }
 
         setJawabanSiswa(mappingJawaban);
-        setListSoalUjian(dataSoal.slice(0, jadwal.jumlah_soal_tampil));
+
+        // 🎲 LOGIKA ACAK SOAL BERDASARKAN ATRIBUT `acak_soal` PADA TABEL MAPEL
+        let finalSoalList = dataSoal;
+        if (jadwal.mapel?.acak_soal) {
+          finalSoalList = acakArray(dataSoal);
+        }
+
+        setListSoalUjian(finalSoalList.slice(0, jadwal.jumlah_soal_tampil));
       } catch (err) {
         console.error(err);
         setErrorMsg('Gagal terhubung dengan server database.');
@@ -282,14 +298,14 @@ export default function LembarUjianPage() {
         await document.documentElement.requestFullscreen();
       }
     } catch {
-      console.log('Fullscreen dipicu manual setelah persetujuan.');
+      console.log('Fullscreen dipicu manual.');
     }
     setTimeout(() => {
       isInteractingRef.current = false;
     }, 500);
   };
 
-  // 2. Timer Hitung Mundur Realtime
+  // 2. Timer Hitung Mundur
   useEffect(() => {
     if (!detailJadwal || !hasAgreedRules) return;
 
@@ -309,7 +325,7 @@ export default function LembarUjianPage() {
           setSisaDetik(selisihDetikReal);
         }
       } catch (error) {
-        console.error('Error parsing datetime scheduler:', error);
+        console.error('Error parsing datetime:', error);
       }
     };
 
@@ -318,7 +334,7 @@ export default function LembarUjianPage() {
     return () => clearInterval(intervalId);
   }, [detailJadwal, hasAgreedRules, eksekusiKirimJawabanAkhir]);
 
-  // 3. Anti-Cheat Guard (Disimpan Otomatis ke LocalStorage)
+  // 3. Anti-Cheat Guard
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -450,7 +466,7 @@ export default function LembarUjianPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       
-      {/* 🛑 POP-UP PERINGATAN ATURAN KECURANGAN (TAMPIL PERTAMA KALI) */}
+      {/* 🛑 POP-UP ATURAN UJIAN */}
       {!hasAgreedRules && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
@@ -489,7 +505,7 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* BANNER INDIKATOR PELANGGARAN */}
+      {/* INDIKATOR PELANGGARAN */}
       {pelanggaranCount > 0 && (
         <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-xl font-bold flex justify-between items-center shadow-sm">
           <span>⚠️ Terdeteksi keluar dari fokus area lembar pengerjaan!</span>
@@ -529,7 +545,7 @@ export default function LembarUjianPage() {
               )}
             </div>
 
-            {/* Opsi Pilihan Jawaban */}
+            {/* Opsi Jawaban */}
             <div className="grid grid-cols-1 gap-3 text-xs">
               {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
                 const textKey = `opsi_${letter.toLowerCase()}` as keyof Soal;
@@ -601,7 +617,7 @@ export default function LembarUjianPage() {
         )}
       </div>
 
-      {/* Floating Grid Navigasi */}
+      {/* Floating Navigasi Nomor Soal */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
         {isNavOpen && (
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
@@ -709,7 +725,7 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* MODAL: ATURAN FULLSCREEN */}
+      {/* MODAL: FULLSCREEN REQUIRED */}
       {isFullScreenRequired && (
         <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
