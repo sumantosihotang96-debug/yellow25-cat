@@ -19,6 +19,7 @@ interface Soal {
   gambar_d?: string | null;
   gambar_e?: string | null;
   jawaban_benar: string;
+  created_at?: string;
 }
 
 interface DetailJadwal {
@@ -68,13 +69,8 @@ export default function LembarUjianPage() {
   const [maxPelanggaran, setMaxPelanggaran] = useState<number>(3);
   const [hasAgreedRules, setHasAgreedRules] = useState(false);
 
-  const [pelanggaranCount, setPelanggaranCount] = useState<number>(() => {
-    if (typeof window !== 'undefined' && idJadwal) {
-      const savedCount = localStorage.getItem(`pelanggaran_${idJadwal}`);
-      return savedCount ? parseInt(savedCount, 10) : 0;
-    }
-    return 0;
-  });
+  // Status Pelanggaran
+  const [pelanggaranCount, setPelanggaranCount] = useState<number>(0);
 
   const [isFullScreenRequired, setIsFullScreenRequired] = useState(false);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
@@ -134,6 +130,9 @@ export default function LembarUjianPage() {
       const totalSoal = listSoalUjian.length;
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
 
+      // Ambil jumlah pelanggaran dari state paling baru
+      const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
+
       await supabase
         .from('nilai_siswa')
         .upsert({
@@ -144,11 +143,13 @@ export default function LembarUjianPage() {
           jumlah_benar: jumlahBenar,
           jumlah_salah: jumlahSalah,
           nilai: nilaiAkhir,
+          jumlah_pelanggaran: currentPelanggaran,
           created_at: new Date().toISOString()
         }, { onConflict: 'id_siswa,id_jadwal' });
 
       localStorage.removeItem(`backup_jawaban_${idJadwal}`);
       localStorage.removeItem(`pelanggaran_${idJadwal}`);
+      localStorage.removeItem(`urutan_soal_${idJadwal}_${uuidSiswaLogin}`);
 
       if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => {});
@@ -183,19 +184,31 @@ export default function LembarUjianPage() {
           setMaxPelanggaran(config.maksimal_pelanggaran);
         }
 
+        // Cek riwayat nilai / pelanggaran yang sudah ada di Supabase
         const { data: sudahAdaNilai } = await supabase
           .from('nilai_siswa')
-          .select('id')
+          .select('id, jumlah_pelanggaran, nilai')
           .eq('id_siswa', siswaId)
           .eq('id_jadwal', idJadwal)
           .maybeSingle();
 
-        if (sudahAdaNilai) {
+        if (sudahAdaNilai && sudahAdaNilai.nilai !== null && sudahAdaNilai.nilai !== undefined) {
           setErrorMsg('🚫 Anda sudah menyelesaikan ujian ini dan tidak diperbolehkan masuk kembali.');
           setLoading(false);
           setTimeout(() => router.replace('/siswa/dashboard'), 3000);
           return;
         }
+
+        // Sinkronkan riwayat pelanggaran dari Supabase / LocalStorage
+        let initialPelanggaran = 0;
+        if (sudahAdaNilai?.jumlah_pelanggaran) {
+          initialPelanggaran = sudahAdaNilai.jumlah_pelanggaran;
+        } else {
+          const savedLocal = localStorage.getItem(`pelanggaran_${idJadwal}`);
+          if (savedLocal) initialPelanggaran = parseInt(savedLocal, 10);
+        }
+        setPelanggaranCount(initialPelanggaran);
+        localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
 
         const { data: dataProfil } = await supabase
           .from('profiles')
@@ -272,10 +285,33 @@ export default function LembarUjianPage() {
 
         setJawabanSiswa(mappingJawaban);
 
-        // 🎲 LOGIKA ACAK SOAL BERDASARKAN ATRIBUT `acak_soal` PADA TABEL MAPEL
-        let finalSoalList = dataSoal;
+        // LOGIKA URUTAN / ACAK SOAL KONSISTEN PER SISWA
+        let finalSoalList: Soal[] = [];
+        const storageKeyUrutan = `urutan_soal_${idJadwal}_${siswaId}`;
+        const savedOrderJson = localStorage.getItem(storageKeyUrutan);
+
         if (jadwal.mapel?.acak_soal) {
-          finalSoalList = acakArray(dataSoal);
+          if (savedOrderJson) {
+            const savedOrderIds: string[] = JSON.parse(savedOrderJson);
+            const soalMap = new Map<string, Soal>(dataSoal.map((s) => [s.id, s]));
+            
+            finalSoalList = savedOrderIds
+              .map((id) => soalMap.get(id))
+              .filter((s): s is Soal => s !== undefined);
+
+            if (finalSoalList.length < dataSoal.length) {
+              const missingSoal = dataSoal.filter((s) => !savedOrderIds.includes(s.id));
+              finalSoalList = [...finalSoalList, ...missingSoal];
+            }
+          } else {
+            const randomized = acakArray(dataSoal);
+            const limitedRandom = randomized.slice(0, jadwal.jumlah_soal_tampil);
+            const orderIds = limitedRandom.map((s) => s.id);
+            localStorage.setItem(storageKeyUrutan, JSON.stringify(orderIds));
+            finalSoalList = limitedRandom;
+          }
+        } else {
+          finalSoalList = [...dataSoal].sort((a, b) => a.id.localeCompare(b.id));
         }
 
         setListSoalUjian(finalSoalList.slice(0, jadwal.jumlah_soal_tampil));
@@ -334,7 +370,28 @@ export default function LembarUjianPage() {
     return () => clearInterval(intervalId);
   }, [detailJadwal, hasAgreedRules, eksekusiKirimJawabanAkhir]);
 
-  // 3. Anti-Cheat Guard
+  // 🔄 FUNGSI UPDATE PELANGGARAN KE DB SECARA REAL-TIME
+  const simpanPelanggaranKeDb = async (count: number) => {
+    try {
+      const siswaId = localStorage.getItem('session_siswa_id');
+      if (!siswaId || !idJadwal) return;
+
+      const namaSiswaTerbaru = namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa';
+      const kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
+
+      await supabase.from('nilai_siswa').upsert({
+        id_siswa: siswaId,
+        id_jadwal: idJadwal,
+        nama_siswa: namaSiswaTerbaru,
+        kelas: kelasSiswaTerbaru,
+        jumlah_pelanggaran: count,
+      }, { onConflict: 'id_siswa,id_jadwal' });
+    } catch (err) {
+      console.error('Gagal update pelanggaran ke DB:', err);
+    }
+  };
+
+  // 3. Anti-Cheat Guard (Ditingkatkan)
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -344,6 +401,9 @@ export default function LembarUjianPage() {
       setPelanggaranCount((prev) => {
         const updateNilai = prev + 1;
         localStorage.setItem(`pelanggaran_${idJadwal}`, updateNilai.toString());
+
+        // Simpan langsung jumlah pelanggaran ke Supabase
+        simpanPelanggaranKeDb(updateNilai);
 
         if (updateNilai >= maxPelanggaran) {
           setIsForceSubmitted(true);
@@ -466,7 +526,7 @@ export default function LembarUjianPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       
-      {/* 🛑 POP-UP ATURAN UJIAN */}
+      {/* POP-UP ATURAN UJIAN */}
       {!hasAgreedRules && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
