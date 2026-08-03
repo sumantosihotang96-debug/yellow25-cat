@@ -162,34 +162,34 @@ export default function PantauUjianAdminPage() {
   }, [listPantau, selectedKelas]);
 
   return (
-    <div className="space-y-6 p-4 max-w-7xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* PANEL CONTROL HEADER */}
-      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-black text-gray-900">🛡️ Radar Ujian Live (Admin Control)</h1>
+            <h1 className="text-lg sm:text-xl font-black text-gray-900">🛡️ Radar Ujian Live</h1>
             <span className="flex h-3 w-3 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            Pantau seluruh progres pengerjaan ujian dan indikasi pelanggaran siswa secara terpusat.
+            Pantau progres pengerjaan ujian dan indikasi pelanggaran siswa secara terpusat.
           </p>
         </div>
 
         {/* CONTROLS: FILTER KELAS & REFRESH */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
           {/* Dropdown Filter Kelas */}
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-1.5">
-            <label htmlFor="filterKelas" className="text-xs font-bold text-gray-500">
+          <div className="flex items-center justify-between sm:justify-start gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+            <label htmlFor="filterKelas" className="text-xs font-bold text-gray-500 whitespace-nowrap">
               Filter Kelas:
             </label>
             <select
               id="filterKelas"
               value={selectedKelas}
               onChange={(e) => setSelectedKelas(e.target.value)}
-              className="bg-transparent text-xs font-bold text-gray-900 outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-gray-900 outline-none cursor-pointer w-full sm:w-auto"
             >
               <option value="SEMUA">🌐 Semua Kelas ({listPantau.length})</option>
               {listKelas.map((k) => (
@@ -203,15 +203,97 @@ export default function PantauUjianAdminPage() {
           <button
             onClick={fetchPantauanLive}
             disabled={fetching}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shrink-0 flex items-center gap-2 active:scale-95"
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow-md shrink-0 flex items-center justify-center gap-2 active:scale-95"
           >
             {fetching ? '🔄 Memindai...' : '🔄 Refresh Manual'}
           </button>
         </div>
       </div>
 
-      {/* VIEW MONITORING TABEL PROGRES */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+      {/* 📱 MOBILE VIEW: KARTU LIST SISWA (Hanya Tampil di Smartphone) */}
+      <div className="block md:hidden space-y-3">
+        {fetching && filteredList.length === 0 ? (
+          <div className="bg-white p-8 rounded-2xl border text-center text-gray-400 font-bold text-xs animate-pulse">
+            ⏳ Sedang memuat radar aktivitas siswa...
+          </div>
+        ) : filteredList.length === 0 ? (
+          <div className="bg-white p-8 rounded-2xl border text-center text-gray-400 font-medium text-xs">
+            📭 Tidak ada aktivitas ujian untuk kelas ini.
+          </div>
+        ) : (
+          filteredList.map((item) => {
+            const total = item.total_soal_tampil || 1;
+            const persen = Math.min(Math.round((item.jumlah_terjawab / total) * 100), 100);
+            const waktuAktif = new Date(item.waktu_terakhir_aktif).toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+
+            return (
+              <div key={`${item.id_siswa}-${item.id_jadwal}`} className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs space-y-3">
+                {/* Header Kartu: Nama & Kelas */}
+                <div className="flex justify-between items-start gap-2 border-b border-gray-100 pb-2.5">
+                  <div>
+                    <h3 className="font-black text-gray-900 text-sm">{item.nama_siswa}</h3>
+                    <p className="text-[11px] text-gray-500 font-medium">{item.nama_mapel}</p>
+                  </div>
+                  <span className="bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded text-[10px] shrink-0">
+                    {item.kelas}
+                  </span>
+                </div>
+
+                {/* Status Badges */}
+                <div className="flex items-center justify-between text-xs">
+                  <div>
+                    {item.is_selesai ? (
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded text-[10px] uppercase">
+                        ✅ Selesai
+                      </span>
+                    ) : (
+                      <span className="bg-amber-50 text-amber-700 border border-amber-200 font-bold px-2 py-0.5 rounded text-[10px] uppercase animate-pulse">
+                        📝 Mengerjakan
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    {item.jumlah_pelanggaran > 0 ? (
+                      <span className="bg-red-50 text-red-600 border border-red-200 font-mono font-black px-2 py-0.5 rounded text-[10px] animate-bounce inline-block">
+                        ⚠️ Pelanggaran: {item.jumlah_pelanggaran}x
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-[10px]">Aman (0 Pelanggaran)</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Progress Bar & Soal */}
+                <div className="space-y-1 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                  <div className="flex justify-between text-[11px] font-bold text-gray-700">
+                    <span>Progres: <span className="text-indigo-600">{item.jumlah_terjawab}</span>/{item.total_soal_tampil} Soal</span>
+                    <span className={persen === 100 ? 'text-emerald-600 font-mono' : 'text-gray-600 font-mono'}>{persen}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${persen === 100 ? 'bg-emerald-500' : 'bg-indigo-600'}`}
+                      style={{ width: `${persen}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Waktu Aktif Terakhir */}
+                <div className="text-right text-[10px] text-indigo-600 font-mono">
+                  ⚡ Terakhir aktif: {waktuAktif} WIB
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* 💻 DESKTOP VIEW: MONITORING TABEL (Hanya Tampil di Tablet / Dekstop) */}
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -290,7 +372,7 @@ export default function PantauUjianAdminPage() {
                       {/* STATUS PELANGGARAN */}
                       <td className="p-4 text-center">
                         {item.jumlah_pelanggaran > 0 ? (
-                          <span className="bg-red-50 text-red-600 border border-red-200 font-mono font-black px-2.5 py-1 rounded-lg text-xs animate-bounce">
+                          <span className="bg-red-50 text-red-600 border border-red-200 font-mono font-black px-2.5 py-1 rounded-lg text-xs animate-bounce inline-block">
                             ⚠️ {item.jumlah_pelanggaran}x
                           </span>
                         ) : (

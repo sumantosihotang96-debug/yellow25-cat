@@ -188,39 +188,44 @@ export default function KelolaJadwalPage() {
   };
 
   return (
-    <div className="space-y-8 relative max-w-6xl mx-auto p-4">
+    <div className="space-y-6 sm:space-y-8 relative w-full max-w-6xl mx-auto p-3 sm:p-6">
+      {/* Toast Notification */}
       {notifikasi && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-xl shadow-lg border transition-all duration-300 max-w-md ${
+        <div className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-center p-4 rounded-xl shadow-lg border transition-all duration-300 max-w-md ${
           notifikasi.tipe === 'sukses' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
         }`}>
-          <div className="text-sm font-semibold">{notifikasi.pesan}</div>
+          <div className="text-xs sm:text-sm font-semibold">{notifikasi.pesan}</div>
         </div>
       )}
 
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Rilis Jadwal & Atur Kuota Soal</h1>
-        <p className="text-gray-500 text-sm">Distribusikan ujian secara acak terkontrol lengkap dengan konfigurasi waktu, token masuk, dan batas soal tampil.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Rilis Jadwal & Atur Kuota Soal</h1>
+        <p className="text-gray-500 text-xs sm:text-sm mt-1">
+          Distribusikan ujian secara acak terkontrol lengkap dengan konfigurasi waktu, token masuk, dan batas soal tampil.
+        </p>
       </div>
 
-      <div className={`p-6 rounded-xl shadow-sm border transition-all ${editingId ? 'bg-amber-50/40 border-amber-200' : 'bg-white border-gray-200'}`}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-base font-bold text-gray-800">
+      {/* Form Card */}
+      <div className={`p-4 sm:p-6 rounded-xl shadow-sm border transition-all ${editingId ? 'bg-amber-50/40 border-amber-200' : 'bg-white border-gray-200'}`}>
+        <div className="flex justify-between items-center mb-4 gap-2">
+          <h2 className="text-sm sm:text-base font-bold text-gray-800">
             {editingId ? '✏️ Koreksi Parameter Distribusi Ujian' : 'Parameter Rilis Ujian Baru'}
           </h2>
           {editingId && (
-            <button type="button" onClick={handleBatalkanEdit} className="text-xs bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 px-3 py-1 rounded-lg font-bold transition-all">
+            <button type="button" onClick={handleBatalkanEdit} className="text-xs bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 px-2.5 py-1 rounded-lg font-bold transition-all shrink-0">
               Batalkan Koreksi
             </button>
           )}
         </div>
 
-        <form onSubmit={handleSimpanAtauRilahJadwal} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-end">
+        <form onSubmit={handleSimpanAtauRilahJadwal} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 items-end">
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Pilih Mata Pelajaran</label>
             <select 
               value={selectedMapelId} 
               onChange={(e) => setSelectedMapelId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium"
               required
             >
               <option value="" className="text-gray-500 bg-white">-- Pilih Mata Pelajaran --</option>
@@ -238,34 +243,34 @@ export default function KelolaJadwalPage() {
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Tanggal Pelaksanaan</label>
-            <input type="date" value={tanggalUjian} onChange={(e) => setTanggalUjian(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" required />
+            <input type="date" value={tanggalUjian} onChange={(e) => setTanggalUjian(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" required />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Jam Mulai Masuk (WIB)</label>
-            <input type="time" value={jamMulai} onChange={(e) => setJamMulai(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" required />
+            <input type="time" value={jamMulai} onChange={(e) => setJamMulai(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" required />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Durasi Ujian (Menit)</label>
-            <input type="number" value={durasi} onChange={(e) => setDurasi(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" min="1" required />
+            <input type="number" value={durasi} onChange={(e) => setDurasi(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" min="1" required />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Batas Maks Soal Tampil</label>
-            <input type="number" value={jumlahSoal} onChange={(e) => setJumlahSoal(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" min="1" required />
+            <input type="number" value={jumlahSoal} onChange={(e) => setJumlahSoal(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 font-medium bg-white" min="1" required />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Token Akses Masuk</label>
             <div className="flex gap-2">
-              <input type="text" value={token} onChange={(e) => setToken(e.target.value.toUpperCase())} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-widest text-center text-blue-600 bg-gray-50" maxLength={5} required />
+              <input type="text" value={token} onChange={(e) => setToken(e.target.value.toUpperCase())} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-widest text-center text-blue-600 bg-gray-50" maxLength={5} required />
               <button type="button" onClick={generateRandomToken} className="bg-gray-800 hover:bg-gray-900 text-white font-bold px-3 py-2 rounded-lg text-xs transition-all whitespace-nowrap">Acak 🎲</button>
             </div>
           </div>
 
           <div className="lg:col-span-3 flex justify-end mt-2">
-            <button type="submit" disabled={loading} className={`font-medium px-8 py-2.5 rounded-lg text-sm transition-all shadow-md w-full lg:w-auto text-white ${editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+            <button type="submit" disabled={loading} className={`font-medium px-8 py-2.5 rounded-lg text-xs sm:text-sm transition-all shadow-md w-full lg:w-auto text-white ${editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
               {loading ? 'Menyinkronkan Server...' : editingId ? '💾 Terapkan Hasil Koreksi' : '🚀 Rilis Jadwal & Buka Kran Ujian'}
             </button>
           </div>
@@ -275,59 +280,63 @@ export default function KelolaJadwalPage() {
       {/* TABEL LIST JADWAL */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 bg-gray-50 border-b border-gray-200">
-          <h3 className="text-sm font-bold text-gray-700">Daftar Jadwal & Status Distribusi Soal</h3>
+          <h3 className="text-xs sm:text-sm font-bold text-gray-700">Daftar Jadwal & Status Distribusi Soal</h3>
         </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-sm font-semibold">
-              <th className="p-4 w-16">No.</th>
-              <th className="p-4">Mata Pelajaran</th>
-              <th className="p-4">Tanggal & Jam</th>
-              <th className="p-4 text-center">Durasi</th>
-              <th className="p-4 text-center">Kuota Soal</th>
-              <th className="p-4 text-center">Token</th>
-              <th className="p-4 text-center w-40">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="text-gray-950 text-sm divide-y divide-gray-100">
-            {fetching ? (
-              <tr><td colSpan={7} className="text-center p-8 text-gray-400">Sedang memuat jadwal rilis...</td></tr>
-            ) : listJadwal.length === 0 ? (
-              <tr><td colSpan={7} className="text-center p-8 text-gray-400">Belum ada jadwal ujian yang dikonfigurasi.</td></tr>
-            ) : (
-              listJadwal.map((jadwal, index) => (
-                <tr key={jadwal.id} className={`transition-colors ${editingId === jadwal.id ? 'bg-amber-50/60' : 'hover:bg-gray-50/50'}`}>
-                  <td className="p-4 text-gray-500">{index + 1}</td>
-                  <td className="p-4">
-                    <p className="font-semibold text-gray-900">
-                      {jadwal.mapel 
-                        ? `${jadwal.mapel.nama_mapel} (${jadwal.mapel.kelas || 'Semua Kelas'} - ${jadwal.mapel.jurusan || 'UMUM'})`
-                        : 'Mapel Terhapus'
-                      }
-                    </p>
-                  </td>
-                  <td className="p-4">
-                    <p className="font-medium text-gray-800">{jadwal.tanggal_ujian}</p>
-                    <p className="text-xs text-gray-500">Pukul {jadwal.jam_mulai} WIB</p>
-                  </td>
-                  <td className="p-4 text-center font-semibold text-gray-600">{jadwal.durasi_menit} Menit</td>
-                  <td className="p-4 text-center">
-                    <span className="bg-purple-50 text-purple-700 font-bold px-2.5 py-0.5 rounded text-xs">{jadwal.jumlah_soal_tampil} Soal</span>
-                  </td>
-                  <td className="p-4 text-center">
-                    <span className="bg-blue-50 text-blue-700 font-mono font-black text-sm px-3 py-1 rounded border border-blue-100 tracking-wider">{jadwal.token_ujian}</span>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex gap-2 justify-center items-center">
-                      <button type="button" onClick={() => handlePicuEdit(jadwal)} className="p-1 px-2.5 bg-gray-100 hover:bg-amber-500 hover:text-white rounded-md text-xs font-bold text-gray-600 transition-all border border-gray-200">✏️ Edit</button>
-                      <button type="button" onClick={() => handleHapusJadwal(jadwal.id)} className="p-1 px-2.5 bg-gray-100 hover:bg-rose-600 hover:text-white rounded-md text-xs font-bold text-rose-600 transition-all border border-gray-200">🗑️ Hapus</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+
+        {/* Pembungkus Tabel Responsif */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs sm:text-sm font-semibold">
+                <th className="p-3 sm:p-4 w-12 sm:w-16 text-center">No.</th>
+                <th className="p-3 sm:p-4">Mata Pelajaran</th>
+                <th className="p-3 sm:p-4">Tanggal & Jam</th>
+                <th className="p-3 sm:p-4 text-center">Durasi</th>
+                <th className="p-3 sm:p-4 text-center">Kuota Soal</th>
+                <th className="p-3 sm:p-4 text-center">Token</th>
+                <th className="p-3 sm:p-4 text-center w-36 sm:w-40">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="text-gray-950 text-xs sm:text-sm divide-y divide-gray-100">
+              {fetching ? (
+                <tr><td colSpan={7} className="text-center p-8 text-gray-400">Sedang memuat jadwal rilis...</td></tr>
+              ) : listJadwal.length === 0 ? (
+                <tr><td colSpan={7} className="text-center p-8 text-gray-400">Belum ada jadwal ujian yang dikonfigurasi.</td></tr>
+              ) : (
+                listJadwal.map((jadwal, index) => (
+                  <tr key={jadwal.id} className={`transition-colors ${editingId === jadwal.id ? 'bg-amber-50/60' : 'hover:bg-gray-50/50'}`}>
+                    <td className="p-3 sm:p-4 text-center text-gray-500">{index + 1}</td>
+                    <td className="p-3 sm:p-4">
+                      <p className="font-semibold text-gray-900">
+                        {jadwal.mapel 
+                          ? `${jadwal.mapel.nama_mapel} (${jadwal.mapel.kelas || 'Semua Kelas'} - ${jadwal.mapel.jurusan || 'UMUM'})`
+                          : 'Mapel Terhapus'
+                        }
+                      </p>
+                    </td>
+                    <td className="p-3 sm:p-4">
+                      <p className="font-medium text-gray-800">{jadwal.tanggal_ujian}</p>
+                      <p className="text-[11px] sm:text-xs text-gray-500">Pukul {jadwal.jam_mulai} WIB</p>
+                    </td>
+                    <td className="p-3 sm:p-4 text-center font-semibold text-gray-600">{jadwal.durasi_menit} Menit</td>
+                    <td className="p-3 sm:p-4 text-center">
+                      <span className="bg-purple-50 text-purple-700 font-bold px-2.5 py-0.5 rounded text-xs">{jadwal.jumlah_soal_tampil} Soal</span>
+                    </td>
+                    <td className="p-3 sm:p-4 text-center">
+                      <span className="bg-blue-50 text-blue-700 font-mono font-black text-xs sm:text-sm px-2.5 sm:px-3 py-1 rounded border border-blue-100 tracking-wider">{jadwal.token_ujian}</span>
+                    </td>
+                    <td className="p-3 sm:p-4">
+                      <div className="flex gap-1.5 justify-center items-center">
+                        <button type="button" onClick={() => handlePicuEdit(jadwal)} className="p-1 px-2.5 bg-gray-100 hover:bg-amber-500 hover:text-white rounded-md text-xs font-bold text-gray-600 transition-all border border-gray-200">✏️ Edit</button>
+                        <button type="button" onClick={() => handleHapusJadwal(jadwal.id)} className="p-1 px-2.5 bg-gray-100 hover:bg-rose-600 hover:text-white rounded-md text-xs font-bold text-rose-600 transition-all border border-gray-200">🗑️ Hapus</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ interface NilaiGlobal {
   nama_siswa: string;
   kelas: string;
   id_siswa: string;
-  id_jadwal: string; 
+  id_jadwal: string;
   jadwal: {
     mapel: {
       nama_mapel: string;
@@ -149,30 +149,33 @@ export default function RekapNilaiAdminPage() {
   const eksekusiHapusNilaiSiswa = async () => {
     try {
       if (modalReset.idSiswa && modalReset.idJadwal) {
-        await supabase
+        const { error: errJawaban } = await supabase
           .from('jawaban_siswa')
           .delete()
           .eq('id_siswa', modalReset.idSiswa)
           .eq('id_jadwal', modalReset.idJadwal);
+
+        if (errJawaban) throw errJawaban;
       }
 
-      const { error } = await supabase
+      const { error: errNilai } = await supabase
         .from('nilai_siswa')
         .delete()
         .eq('id', modalReset.idRecord);
 
-      if (error) throw error;
+      if (errNilai) throw errNilai;
 
       setNotifikasi({ 
         pesan: `🔄 Sesi ujian "${modalReset.namaSiswa}" pada mapel "${modalReset.mapel}" berhasil direset total!`, 
         tipe: 'sukses' 
       });
       
-      fetchNilaiGlobal();
-    } catch (err: any) {
-      console.error(err.message);
+      await fetchNilaiGlobal();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Terjadi kesalahan sistem';
+      console.error(errorMsg);
       setNotifikasi({ 
-        pesan: `❌ Gagal mereset data ujian siswa: ${err.message}`, 
+        pesan: `❌ Gagal mereset data ujian siswa: ${errorMsg}`, 
         tipe: 'gagal' 
       });
     } finally {
@@ -180,7 +183,7 @@ export default function RekapNilaiAdminPage() {
     }
   };
 
-  // Eksekusi Hapus Seluruh Hasil (Filtered Data)
+  // Eksekusi Hapus Seluruh Hasil (Optimized Batch Operations)
   const eksekusiHapusSeluruhHasil = async () => {
     if (filteredNilai.length === 0) return;
     setIsDeleting(true);
@@ -188,38 +191,40 @@ export default function RekapNilaiAdminPage() {
     try {
       const idsNilai = filteredNilai.map((item) => item.id);
 
-      // Kumpulkan kombinasi id_siswa & id_jadwal unik untuk menghapus jawaban
-      const pasanganSiswaJadwal = filteredNilai
+      // Ambil daftar unik id_siswa & id_jadwal
+      const filterConditions = filteredNilai
         .filter((item) => item.id_siswa && item.id_jadwal)
-        .map((item) => ({ id_siswa: item.id_siswa, id_jadwal: item.id_jadwal }));
+        .map((item) => `and(id_siswa.eq.${item.id_siswa},id_jadwal.eq.${item.id_jadwal})`);
 
-      // Hapus jawaban siswa berulang/berdasarkan pasangan
-      for (const item of pasanganSiswaJadwal) {
-        await supabase
+      // Hapus jawaban siswa dalam satu query terintegrasi menggunakan `.or()`
+      if (filterConditions.length > 0) {
+        const { error: errJawaban } = await supabase
           .from('jawaban_siswa')
           .delete()
-          .eq('id_siswa', item.id_siswa)
-          .eq('id_jadwal', item.id_jadwal);
+          .or(filterConditions.join(','));
+
+        if (errJawaban) throw errJawaban;
       }
 
-      // Hapus rekaman nilai
-      const { error } = await supabase
+      // Hapus rekaman nilai sekaligus
+      const { error: errNilai } = await supabase
         .from('nilai_siswa')
         .delete()
         .in('id', idsNilai);
 
-      if (error) throw error;
+      if (errNilai) throw errNilai;
 
       setNotifikasi({
         pesan: `🔥 Berhasil menghapus ${idsNilai.length} data hasil ujian secara massal!`,
         tipe: 'sukses'
       });
 
-      fetchNilaiGlobal();
-    } catch (err: any) {
-      console.error(err.message);
+      await fetchNilaiGlobal();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Terjadi kesalahan sistem';
+      console.error(errorMsg);
       setNotifikasi({
-        pesan: `❌ Gagal menghapus seluruh data: ${err.message}`,
+        pesan: `❌ Gagal menghapus seluruh data: ${errorMsg}`,
         tipe: 'gagal'
       });
     } finally {

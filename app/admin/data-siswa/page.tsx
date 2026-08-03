@@ -10,17 +10,17 @@ interface Siswa {
   nomor_induk: string; // NISN siswa
   kelas: string;
   email: string;
-  password?: string; // Masukkan password ke dalam interface
-  created_at: string;
+  password?: string;
+  created_at?: string;
 }
 
 export default function DataSiswaPage() {
   const [listSiswa, setListSiswa] = useState<Siswa[]>([]);
-  
+
   // Opsi pilihan dinamis dari tabel mapel
   const [listTingkatKelas, setListTingkatKelas] = useState<string[]>([]);
   const [listJurusan, setListJurusan] = useState<string[]>([]);
-  
+
   // State Input Form Utama
   const [namaLengkap, setNamaLengkap] = useState('');
   const [nisn, setNisn] = useState('');
@@ -43,7 +43,7 @@ export default function DataSiswaPage() {
   // State Manajemen Banner Notifikasi Layang
   const [notifikasi, setNotifikasi] = useState<{ pesan: string; tipe: 'sukses' | 'gagal' } | null>(null);
 
-  // State untuk Pagination (Membatasi dan menggeser data)
+  // State untuk Pagination
   const [barisTampil, setBarisTampil] = useState<number>(10);
   const [halamanAktif, setHalamanAktif] = useState<number>(1);
 
@@ -76,7 +76,7 @@ export default function DataSiswaPage() {
     setFetching(false);
   };
 
-  // AMBIL KELAS & JURUSAN SEKALIGUS DARI TABEL MAPEL
+  // Ambil Kelas & Jurusan Sekaligus dari Tabel Mapel
   const fetchOpsiRombelDariMapel = async () => {
     try {
       const { data, error } = await supabase
@@ -84,14 +84,12 @@ export default function DataSiswaPage() {
         .select('kelas, jurusan');
 
       if (!error && data) {
-        // 1. Filter & dapatkan Kelas unik
         const semuaKelas = data
           .map((item) => item.kelas?.trim().toUpperCase())
           .filter((k): k is string => !!k);
         const kelasUnik = Array.from(new Set(semuaKelas)).sort();
         setListTingkatKelas(kelasUnik);
 
-        // 2. Filter & dapatkan Jurusan unik
         const semuaJurusan = data
           .map((item) => item.jurusan?.trim().toUpperCase())
           .filter((j): j is string => !!j);
@@ -108,23 +106,23 @@ export default function DataSiswaPage() {
     fetchOpsiRombelDariMapel();
   }, []);
 
-  // Fungsi untuk Mengunduh Template Excel Otomatis
+  // Unduh Template Excel
   const handleUnduhTemplate = () => {
     const strukturTemplate = [
       {
         nama: 'Budi Santoso',
         nisn: '0054321098',
-        kelas: 'X TKJ 1', // Diperbarui menggunakan spasi di template agar sinkron
+        kelas: 'X TKJ 1',
         email: 'budi@siswa.sch.id',
-        password: '123'
+        password: '123',
       },
       {
         nama: 'Siti Aminah',
         nisn: '0065432109',
-        kelas: 'XI RPL 2', // Diperbarui menggunakan spasi di template agar sinkron
+        kelas: 'XI RPL 2',
         email: 'siti@siswa.sch.id',
-        password: 'passwordku123'
-      }
+        password: 'passwordku123',
+      },
     ];
 
     const worksheet = XLSX.utils.json_to_sheet(strukturTemplate);
@@ -133,7 +131,7 @@ export default function DataSiswaPage() {
     XLSX.writeFile(workbook, 'template_import_siswa.xlsx');
   };
 
-  // Fungsi Simpan (Bisa Tambah Baru atau Perbarui Data yang Ada)
+  // Simpan atau Update Data Siswa
   const handleSimpanForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!namaLengkap || !nisn || !tingkatKelas || !jurusan || !nomorKelas || !email || !password) {
@@ -142,12 +140,11 @@ export default function DataSiswaPage() {
     }
     setLoading(true);
 
-    // BARU: Menggabungkan komponen rombel menggunakan spasi ' ' bukan lagi '-'
     const kelasGabungan = `${tingkatKelas} ${jurusan.toUpperCase()} ${nomorKelas}`;
 
     try {
       if (editId) {
-        const updateData: any = {
+        const updateData = {
           nama_lengkap: namaLengkap,
           nomor_induk: nisn,
           kelas: kelasGabungan,
@@ -162,7 +159,6 @@ export default function DataSiswaPage() {
 
         if (updateError) throw updateError;
         setNotifikasi({ pesan: `🎉 Berhasil memperbarui data siswa ${namaLengkap}.`, tipe: 'sukses' });
-
       } else {
         const { error: insertError } = await supabase
           .from('profiles')
@@ -184,22 +180,22 @@ export default function DataSiswaPage() {
 
       resetForm();
       fetchSiswa();
-    } catch (error: any) {
-      setNotifikasi({ pesan: '❌ Gagal menyimpan data: ' + error.message, tipe: 'gagal' });
+    } catch (error: unknown) {
+      const err = error as Error;
+      setNotifikasi({ pesan: '❌ Gagal menyimpan data: ' + err.message, tipe: 'gagal' });
     } finally {
       setLoading(false);
     }
   };
 
-  // Masukkan data siswa ke dalam State saat Edit dipicu
-  const pemicuEdit = async (siswa: Siswa) => {
+  // Pemicu Edit Data
+  const pemicuEdit = (siswa: Siswa) => {
     setEditId(siswa.id);
     setNamaLengkap(siswa.nama_lengkap);
     setNisn(siswa.nomor_induk);
     setEmail(siswa.email);
     setPassword(siswa.password || '');
 
-    // BARU: Memecah string berdasarkan spasi untuk dikembalikan ke input pilihan form
     const bagianKelas = siswa.kelas.split(' ');
     if (bagianKelas.length === 3) {
       setTingkatKelas(bagianKelas[0].toUpperCase());
@@ -214,28 +210,26 @@ export default function DataSiswaPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Fungsi hapus data siswa satuan
+  // Hapus Siswa Satuan
   const handleHapusSiswa = async (id: string, nama: string) => {
     const konfirmasi = window.confirm(`Apakah Anda yakin ingin menghapus permanen akun siswa: ${nama}?`);
     if (!konfirmasi) return;
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', id);
+      const { error } = await supabase.from('profiles').delete().eq('id', id);
 
       if (error) throw error;
 
       setNotifikasi({ pesan: `🗑️ Akun siswa bernama ${nama} berhasil dihapus dari sistem.`, tipe: 'sukses' });
       if (editId === id) resetForm();
       fetchSiswa();
-    } catch (error: any) {
-      setNotifikasi({ pesan: '❌ Gagal menghapus siswa: ' + error.message, tipe: 'gagal' });
+    } catch (error: unknown) {
+      const err = error as Error;
+      setNotifikasi({ pesan: '❌ Gagal menghapus siswa: ' + err.message, tipe: 'gagal' });
     }
   };
 
-  // BARU: Fungsi Hapus Semua Siswa Sekaligus (Reset Cepat)
+  // Hapus Semua Siswa
   const handleHapusSemuaSiswa = async () => {
     if (listSiswa.length === 0) {
       setNotifikasi({ pesan: '⚠️ Tidak ada data siswa yang bisa dihapus.', tipe: 'gagal' });
@@ -250,18 +244,16 @@ export default function DataSiswaPage() {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('role', 'siswa'); // Mengunci guard agar data guru/admin tidak ikut terhapus
+      const { error } = await supabase.from('profiles').delete().eq('role', 'siswa');
 
       if (error) throw error;
 
       setNotifikasi({ pesan: '💥 Sukses Besar! Seluruh data akun peserta ujian telah dibersihkan.', tipe: 'sukses' });
       resetForm();
       fetchSiswa();
-    } catch (error: any) {
-      setNotifikasi({ pesan: '❌ Gagal mengosongkan data siswa: ' + error.message, tipe: 'gagal' });
+    } catch (error: unknown) {
+      const err = error as Error;
+      setNotifikasi({ pesan: '❌ Gagal mengosongkan data siswa: ' + err.message, tipe: 'gagal' });
     } finally {
       setLoading(false);
     }
@@ -278,6 +270,7 @@ export default function DataSiswaPage() {
     setPassword('');
   };
 
+  // Import dari Excel
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -291,8 +284,8 @@ export default function DataSiswaPage() {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        
-        const rawData = XLSX.utils.sheet_to_json(ws) as any[];
+
+        const rawData = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
 
         if (rawData.length === 0) {
           setNotifikasi({ pesan: '⚠️ File Excel kosong atau format tidak sesuai.', tipe: 'gagal' });
@@ -304,7 +297,7 @@ export default function DataSiswaPage() {
         let gagalCount = 0;
 
         for (const baris of rawData) {
-          const barisNormal: any = {};
+          const barisNormal: Record<string, unknown> = {};
           Object.keys(baris).forEach((key) => {
             barisNormal[key.toLowerCase().trim()] = baris[key];
           });
@@ -324,7 +317,7 @@ export default function DataSiswaPage() {
             id: crypto.randomUUID(),
             nama_lengkap: String(namaSiswa).trim(),
             nomor_induk: String(nisnSiswa).trim(),
-            kelas: String(kelasSiswa).trim().toUpperCase(), // Mengikuti format input excel user
+            kelas: String(kelasSiswa).trim().toUpperCase(),
             email: String(emailSiswa).trim(),
             password: String(passSiswa).trim(),
             role: 'siswa',
@@ -332,23 +325,22 @@ export default function DataSiswaPage() {
         }
 
         if (dataBulkInsert.length > 0) {
-          const { error: bulkError } = await supabase
-            .from('profiles')
-            .insert(dataBulkInsert);
+          const { error: bulkError } = await supabase.from('profiles').insert(dataBulkInsert);
 
           if (bulkError) throw bulkError;
 
-          setNotifikasi({ 
-            pesan: `📊 Impor Selesai! Berhasil menyimpan ${dataBulkInsert.length} siswa. (Gagal/Skip: ${gagalCount} baris).`, 
-            tipe: 'sukses' 
+          setNotifikasi({
+            pesan: `📊 Impor Selesai! Berhasil menyimpan ${dataBulkInsert.length} siswa. (Gagal/Skip: ${gagalCount} baris).`,
+            tipe: 'sukses',
           });
         } else {
           setNotifikasi({ pesan: '⚠️ Tidak ada data valid yang bisa diimpor. Cek format header template Anda.', tipe: 'gagal' });
         }
 
         fetchSiswa();
-      } catch (error: any) {
-        setNotifikasi({ pesan: '❌ Gagal memproses file Excel: ' + error.message, tipe: 'gagal' });
+      } catch (error: unknown) {
+        const err = error as Error;
+        setNotifikasi({ pesan: '❌ Gagal memproses file Excel: ' + err.message, tipe: 'gagal' });
       } finally {
         setUploading(false);
         e.target.value = '';
@@ -358,67 +350,85 @@ export default function DataSiswaPage() {
     reader.readAsBinaryString(file);
   };
 
-  // Hitung indeks pemotongan array listSiswa untuk Pagination
+  // Pagination Logic
   const totalHalaman = Math.ceil(listSiswa.length / barisTampil) || 1;
   const indeksAwal = (halamanAktif - 1) * barisTampil;
   const indeksAkhir = indeksAwal + barisTampil;
-  
   const siswaYangDitampilkan = listSiswa.slice(indeksAwal, indeksAkhir);
 
   return (
-    <div className="space-y-8 relative">
-      
+    <div className="space-y-6 sm:space-y-8 relative">
+      {/* Toast Notification */}
       {notifikasi && (
-        <div className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-xl shadow-lg border transition-all duration-300 max-w-md ${
-          notifikasi.tipe === 'sukses' 
-            ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
-            : 'bg-rose-50 border-rose-200 text-rose-900'
-        }`}>
+        <div
+          className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-center p-4 rounded-xl shadow-xl border transition-all duration-300 sm:max-w-md ${
+            notifikasi.tipe === 'sukses'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : 'bg-rose-50 border-rose-200 text-rose-900'
+          }`}
+        >
           <div className="text-sm font-semibold">{notifikasi.pesan}</div>
         </div>
       )}
 
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Data Master Siswa</h1>
-        <p className="text-gray-500 text-sm">Kelola pendaftaran akun ujian siswa secara langsung ke database murni tanpa batasan sistem Auth.</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Data Master Siswa</h1>
+        <p className="text-gray-500 text-xs sm:text-sm mt-1">
+          Kelola pendaftaran akun ujian siswa secara langsung ke database murni tanpa batasan sistem Auth.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
-        <div className="xl:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+      {/* Form Input + Import Excel Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 sm:gap-8 items-start">
+        {/* Form Main Input */}
+        <div className="xl:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-xs border border-gray-100">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-base font-bold text-gray-800">
+            <h2 className="text-sm sm:text-base font-bold text-gray-800">
               {editId ? '📝 Edit Data Siswa' : 'Input Siswa Manual'}
             </h2>
             {editId && (
-              <button 
-                type="button" 
-                onClick={resetForm} 
+              <button
+                type="button"
+                onClick={resetForm}
                 className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded-md font-medium"
               >
                 Batal Edit
               </button>
             )}
           </div>
-          
+
           <form onSubmit={handleSimpanForm} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">Nama Lengkap Siswa</label>
-              <input type="text" value={namaLengkap} onChange={(e) => setNamaLengkap(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium" placeholder="Budi Santoso" required />
+              <input
+                type="text"
+                value={namaLengkap}
+                onChange={(e) => setNamaLengkap(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+                placeholder="Budi Santoso"
+                required
+              />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1">NISN (Nomor Induk Siswa Nasional)</label>
-              <input type="text" value={nisn} onChange={(e) => setNisn(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium" placeholder="0054321098" required />
+              <input
+                type="text"
+                value={nisn}
+                onChange={(e) => setNisn(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+                placeholder="0054321098"
+                required
+              />
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">Konfigurasi Rombel / Kelas & Jurusan</label>
-              <div className="grid grid-cols-3 gap-2">
-                
-                <select 
-                  value={tingkatKelas} 
-                  onChange={(e) => setTingkatKelas(e.target.value)} 
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <select
+                  value={tingkatKelas}
+                  onChange={(e) => setTingkatKelas(e.target.value)}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium uppercase"
                   required
                 >
@@ -452,36 +462,66 @@ export default function DataSiswaPage() {
                   )}
                 </select>
 
-                <input type="number" value={nomorKelas} onChange={(e) => setNomorKelas(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium" placeholder="Nomor Sub" min="1" required />
+                <input
+                  type="number"
+                  value={nomorKelas}
+                  onChange={(e) => setNomorKelas(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+                  placeholder="Nomor Sub (Contoh: 1)"
+                  min="1"
+                  required
+                />
               </div>
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">Email Siswa</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium" placeholder="budi@siswa.sch.id" required />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+                placeholder="budi@siswa.sch.id"
+                required
+              />
             </div>
 
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">
-                Kata Sandi Akun Siswa {editId && <span className="text-blue-600 text-[11px] font-bold">(Password lama ditampilkan, silakan edit jika ingin mengubah)</span>}
+                Kata Sandi Akun Siswa{' '}
+                {editId && (
+                  <span className="text-blue-600 text-[11px] font-bold block sm:inline">
+                    (Password lama ditampilkan, silakan edit jika ingin mengubah)
+                  </span>
+                )}
               </label>
               <div className="relative">
-                <input 
-                  type={showPassword ? 'text' : 'password'} 
-                  value={password} 
-                  onChange={(e) => setPassword(e.target.value)} 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium pr-10" 
-                  placeholder="Masukkan kata sandi (contoh: 123)" 
-                  required 
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium pr-10"
+                  placeholder="Masukkan kata sandi (contoh: 123)"
+                  required
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-sm text-gray-500">
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-sm text-gray-500"
+                >
                   {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
             </div>
 
             <div className="md:col-span-2 flex justify-end mt-2">
-              <button type="submit" disabled={loading} className={`text-white font-medium px-6 py-2 rounded-lg text-sm transition-all shadow-sm w-full md:w-auto ${editId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+              <button
+                type="submit"
+                disabled={loading}
+                className={`text-white font-medium px-6 py-2.5 rounded-lg text-sm transition-all shadow-xs w-full md:w-auto ${
+                  editId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
                 {loading ? 'Memproses...' : editId ? 'Perbarui Data Siswa' : 'Simpan Siswa Baru'}
               </button>
             </div>
@@ -489,30 +529,39 @@ export default function DataSiswaPage() {
         </div>
 
         {/* Unggah Massal Excel */}
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 p-6 rounded-xl border border-gray-200/60 shadow-sm flex flex-col justify-between h-full min-h-[300px]">
+        <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 p-4 sm:p-6 rounded-xl border border-gray-200/60 shadow-xs flex flex-col justify-between h-full min-h-[280px]">
           <div>
             <div className="flex justify-between items-start gap-2">
-              <h2 className="text-base font-bold text-green-800 flex items-center gap-2">🟢 Unggah Massal (Excel)</h2>
-              
+              <h2 className="text-sm sm:text-base font-bold text-green-800 flex items-center gap-2">
+                🟢 Unggah Massal (Excel)
+              </h2>
+
               <button
                 type="button"
                 onClick={handleUnduhTemplate}
-                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded transition-all flex items-center gap-1 shrink-0 shadow-sm"
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded transition-all flex items-center gap-1 shrink-0 shadow-xs"
               >
                 📥 Unduh Template
               </button>
             </div>
-            
+
             <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-              Daftarkan ratusan siswa dalam hitungan detik. Pastikan file Excel Anda menggunakan header kolom persis berikut: <br />
+              Daftarkan ratusan siswa dalam hitungan detik. Pastikan file Excel Anda menggunakan header kolom persis berikut:{' '}
+              <br />
               <strong className="text-gray-700 font-mono text-[11px]">nama | nisn | kelas | email | password</strong>
             </p>
           </div>
-          
+
           <div className="mt-4">
-            <label className={`w-full flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-gray-300 px-4 py-6 text-center cursor-pointer hover:border-green-500 transition-all ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label
+              className={`w-full flex flex-col items-center justify-center bg-white rounded-xl border-2 border-dashed border-gray-300 px-4 py-6 text-center cursor-pointer hover:border-green-500 transition-all ${
+                uploading ? 'opacity-50 pointer-events-none' : ''
+              }`}
+            >
               <span className="text-2xl mb-1">📊</span>
-              <span className="text-xs font-bold text-gray-700">{uploading ? 'Sedang Memproses Excel...' : 'Pilih / Seret File Excel'}</span>
+              <span className="text-xs font-bold text-gray-700">
+                {uploading ? 'Sedang Memproses Excel...' : 'Pilih / Seret File Excel'}
+              </span>
               <span className="text-[10px] text-gray-400 mt-0.5">Format file .xlsx / .xls</span>
               <input type="file" accept=".xlsx, .xls" onChange={handleImportExcel} className="hidden" disabled={uploading} />
             </label>
@@ -520,38 +569,35 @@ export default function DataSiswaPage() {
         </div>
       </div>
 
-      {/* TABEL DATA SISWA */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        
+      {/* Tabel Data Siswa */}
+      <div className="bg-white rounded-xl shadow-xs border border-gray-100 overflow-hidden">
+        {/* Header Control Table */}
         <div className="p-4 bg-gray-50/60 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div className="flex items-center gap-3-wrap">
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-bold text-gray-700">Daftar Akun Peserta Ujian</h3>
-              <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md">
-                Menampilkan {indeksAwal + 1}-{Math.min(indeksAkhir, listSiswa.length)} dari {listSiswa.length} Siswa
-              </span>
-            </div>
-            
-            {/* BARU: Tombol Reset / Hapus Semua Data Siswa Cepat */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h3 className="text-sm font-bold text-gray-700">Daftar Akun Peserta Ujian</h3>
+            <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md">
+              Menampilkan {listSiswa.length === 0 ? 0 : indeksAwal + 1}-{Math.min(indeksAkhir, listSiswa.length)} dari {listSiswa.length} Siswa
+            </span>
+
             {listSiswa.length > 0 && (
               <button
                 type="button"
                 disabled={loading || fetching}
                 onClick={handleHapusSemuaSiswa}
-                className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg transition-all shadow-sm disabled:opacity-50 inline-flex items-center gap-1.5 ml-2"
+                className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white px-3 py-1 rounded-lg transition-all shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5"
               >
-                💥 Hapus Semua Data Siswa
+                💥 Hapus Semua
               </button>
             )}
           </div>
-          
-          {/* Dropdown Pilihan Limit Data */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-gray-500">Tampilkan data:</label>
+
+          {/* Dropdown Limit Data */}
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <label className="text-xs font-semibold text-gray-500">Tampilkan:</label>
             <select
               value={barisTampil}
               onChange={(e) => setBarisTampil(Number(e.target.value))}
-              className="text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-sm"
+              className="text-xs font-bold text-gray-700 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs"
             >
               <option value={10}>10 Baris</option>
               <option value={20}>20 Baris</option>
@@ -562,34 +608,51 @@ export default function DataSiswaPage() {
           </div>
         </div>
 
+        {/* Responsive Table Wrapper */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[640px]">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-gray-600 text-sm font-semibold">
-                <th className="p-4 w-16">No.</th>
-                <th className="p-4 w-28">Kelas</th>
-                <th className="p-4">Nama Lengkap</th>
-                <th className="p-4 w-36">NISN</th>
-                <th className="p-4">Email Akun</th>
-                <th className="p-4 w-40 text-center">Tindakan Admin</th>
+              <tr className="bg-gray-50 border-b border-gray-100 text-gray-600 text-xs sm:text-sm font-semibold">
+                <th className="p-3 sm:p-4 w-12 text-center">No.</th>
+                <th className="p-3 sm:p-4 w-28">Kelas</th>
+                <th className="p-3 sm:p-4">Nama Lengkap</th>
+                <th className="p-3 sm:p-4 w-32">NISN</th>
+                <th className="p-3 sm:p-4">Email Akun</th>
+                <th className="p-3 sm:p-4 w-36 text-center">Tindakan Admin</th>
               </tr>
             </thead>
-            <tbody className="text-gray-950 text-sm divide-y divide-gray-50">
+            <tbody className="text-gray-950 text-xs sm:text-sm divide-y divide-gray-50">
               {fetching ? (
-                <tr><td colSpan={6} className="text-center p-8 text-gray-400">Sedang memuat data peserta...</td></tr>
+                <tr>
+                  <td colSpan={6} className="text-center p-8 text-gray-400">
+                    Sedang memuat data peserta...
+                  </td>
+                </tr>
               ) : listSiswa.length === 0 ? (
-                <tr><td colSpan={6} className="text-center p-8 text-gray-400">Belum ada data siswa. Gunakan form di atas untuk menambahkan.</td></tr>
+                <tr>
+                  <td colSpan={6} className="text-center p-8 text-gray-400">
+                    Belum ada data siswa. Gunakan form di atas untuk menambahkan.
+                  </td>
+                </tr>
               ) : (
                 siswaYangDitampilkan.map((siswa, index) => (
-                  <tr key={siswa.id || index} className={`hover:bg-gray-50/50 transition-colors ${editId === siswa.id ? 'bg-amber-50/40 hover:bg-amber-50/60' : ''}`}>
-                    <td className="p-4 text-gray-500">{indeksAwal + index + 1}</td>
-                    {/* Tampilan label kelas sekarang otomatis rapi menggunakan spasi dari DB */}
-                    <td className="p-4"><span className="bg-gray-100 text-gray-800 font-mono font-bold text-xs px-2 py-0.5 rounded whitespace-nowrap">{siswa.kelas}</span></td>
-                    <td className="p-4 font-semibold text-gray-900">{siswa.nama_lengkap}</td>
-                    <td className="p-4 font-mono text-gray-700">{siswa.nomor_induk}</td>
-                    <td className="p-4 text-gray-500">{siswa.email}</td>
-                    <td className="p-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                  <tr
+                    key={siswa.id || index}
+                    className={`hover:bg-gray-50/50 transition-colors ${
+                      editId === siswa.id ? 'bg-amber-50/40 hover:bg-amber-50/60' : ''
+                    }`}
+                  >
+                    <td className="p-3 sm:p-4 text-center text-gray-500">{indeksAwal + index + 1}</td>
+                    <td className="p-3 sm:p-4">
+                      <span className="bg-gray-100 text-gray-800 font-mono font-bold text-xs px-2 py-0.5 rounded whitespace-nowrap">
+                        {siswa.kelas}
+                      </span>
+                    </td>
+                    <td className="p-3 sm:p-4 font-semibold text-gray-900">{siswa.nama_lengkap}</td>
+                    <td className="p-3 sm:p-4 font-mono text-gray-700">{siswa.nomor_induk}</td>
+                    <td className="p-3 sm:p-4 text-gray-500 truncate max-w-[180px] sm:max-w-none">{siswa.email}</td>
+                    <td className="p-3 sm:p-4 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => pemicuEdit(siswa)}
@@ -613,35 +676,35 @@ export default function DataSiswaPage() {
           </table>
         </div>
 
-        {/* Navigasi Tombol Menggeser Halaman (Pagination Kontrol) */}
+        {/* Footer Pagination */}
         {listSiswa.length > 0 && (
-          <div className="p-4 bg-gray-50/40 border-t border-gray-100 flex items-center justify-between">
+          <div className="p-4 bg-gray-50/40 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
             <span className="text-xs text-gray-500 font-medium">
-              Halaman <strong className="text-gray-700">{halamanAktif}</strong> dari <strong className="text-gray-700">{totalHalaman}</strong>
+              Halaman <strong className="text-gray-700">{halamanAktif}</strong> dari{' '}
+              <strong className="text-gray-700">{totalHalaman}</strong>
             </span>
-            
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 disabled={halamanAktif === 1 || fetching}
                 onClick={() => setHalamanAktif((prev) => prev - 1)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:pointer-events-none shadow-sm"
+                className="px-3 py-1.5 text-xs font-semibold bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:pointer-events-none shadow-xs"
               >
                 ◀️ Sebelumnya
               </button>
-              
+
               <button
                 type="button"
                 disabled={halamanAktif === totalHalaman || fetching}
                 onClick={() => setHalamanAktif((prev) => prev + 1)}
-                className="px-3 py-1.5 text-xs font-semibold bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:pointer-events-none shadow-sm"
+                className="px-3 py-1.5 text-xs font-semibold bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:pointer-events-none shadow-xs"
               >
                 Berikutnya ▶️
               </button>
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
