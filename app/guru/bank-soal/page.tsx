@@ -482,12 +482,6 @@ export default function BankSoalLengkapPage() {
     }
   };
 
-  const aksiAcakUrutanSoal = () => {
-    const acak = [...listSoal].sort(() => Math.random() - 0.5);
-    setListSoal(acak);
-    picuNotifikasi('🔀 Tampilan daftar soal berhasil diacak.');
-  };
-
   // FITUR PENGIKAT / GROUPING SOAL
   const aksiIkatSoalTerpilih = async () => {
     if (soalTerpilihIds.length < 2) {
@@ -754,10 +748,9 @@ export default function BankSoalLengkapPage() {
               <>
                 <button
                   type="button"
-                  onClick={aksiAcakUrutanSoal}
+                  onClick={handleDownloadSoalKeExcel}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1 shadow-sm"
                 >
- 
                   📥 Download Soal (.xlsx)
                 </button>
 

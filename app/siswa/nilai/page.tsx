@@ -7,7 +7,7 @@ import { supabase } from '@/utils/supabase';
 interface RiwayatNilai {
   id: string;
   nilai: number;
-  id_jadwal: string; // ➕ Ditambahkan untuk navigasi ke review jawaban
+  id_jadwal: string;
   created_at: string;
   jadwal: {
     tanggal_ujian: string;
@@ -27,8 +27,9 @@ export default function RekapNilaiSiswaPage() {
   const [namaSiswa, setNamaSiswa] = useState('Memuat nama...');
   const [kelasSiswa, setKelasSiswa] = useState('-'); 
   
-  // 🏫 State Pengaturan Global Sekolah
+  // 🏫 State Pengaturan Global Sekolah & Toggle Hak Akses
   const [namaSekolah, setNamaSekolah] = useState('Ruang Ujian');
+  const [tampilkanJawaban, setTampilkanJawaban] = useState<boolean>(false); // 🔑 Controls tombol Lihat Jawaban
 
   // Fungsi pengubah huruf pertama menjadi kapital
   const formatNama = (text: string) => {
@@ -59,17 +60,22 @@ export default function RekapNilaiSiswaPage() {
       setKelasSiswa(kelasLengkap || '-');
       
       try {
-        // 🏫 1. Ambil Nama Sekolah
+        // 🏫 1. Ambil Nama Sekolah & Status Toggle Tampilkan Jawaban dari Admin
         const { data: globalConfig } = await supabase
           .from('pengaturan_global')
-          .select('nama_sekolah')
+          .select('nama_sekolah, tampilkan_jawaban')
+          .eq('id', 1)
           .maybeSingle();
 
-        if (globalConfig?.nama_sekolah) {
-          setNamaSekolah(globalConfig.nama_sekolah);
+        if (globalConfig) {
+          if (globalConfig.nama_sekolah) {
+            setNamaSekolah(globalConfig.nama_sekolah);
+          }
+          // Set status toggle berdasarkan input admin (True / False)
+          setTampilkanJawaban(Boolean(globalConfig.tampilkan_jawaban));
         }
 
-        // 📝 2. Ambil Riwayat Nilai (ditambahkan id_jadwal)
+        // 📝 2. Ambil Riwayat Nilai
         const { data, error } = await supabase
           .from('nilai_siswa')
           .select(`
@@ -110,7 +116,7 @@ export default function RekapNilaiSiswaPage() {
           const formatData = (data as any[]).map((item) => ({
             id: item.id,
             nilai: item.nilai ?? 0,
-            id_jadwal: item.id_jadwal, // ➕ Menyimpan id_jadwal
+            id_jadwal: item.id_jadwal,
             created_at: item.created_at,
             jadwal: item.jadwal ? {
               tanggal_ujian: item.jadwal.tanggal_ujian,
@@ -143,7 +149,9 @@ export default function RekapNilaiSiswaPage() {
             Rekap Nilai: <span className="text-yellow-300">{namaSiswa}</span> di {namaSekolah}! 👋
           </h2>
           <p className="text-xs text-blue-100 opacity-90">
-            Lihat riwayat perolehan skor dan pembahasan jawaban dari ujian yang telah dikerjakan.
+            {tampilkanJawaban 
+              ? 'Lihat riwayat perolehan skor dan pembahasan jawaban dari ujian yang telah dikerjakan.'
+              : 'Lihat riwayat perolehan skor ujian yang telah dikerjakan.'}
           </p>
         </div>
 
@@ -176,19 +184,22 @@ export default function RekapNilaiSiswaPage() {
                 <th className="p-4">Mata Pelajaran</th>
                 <th className="p-4">Tanggal Ujian</th>
                 <th className="p-4 text-center w-32">Nilai Akhir</th>
-                <th className="p-4 text-center w-48">Aksi</th>
+                {/* 🔑 Header Aksi hanya muncul jika Tampilkan Jawaban bernilai True */}
+                {tampilkanJawaban && (
+                  <th className="p-4 text-center w-48">Aksi</th>
+                )}
               </tr>
             </thead>
             <tbody className="text-gray-700 text-sm divide-y divide-gray-100 font-medium">
               {fetching ? (
                 <tr>
-                  <td colSpan={5} className="text-center p-12 text-xs font-bold text-gray-400 tracking-widest uppercase animate-pulse">
+                  <td colSpan={tampilkanJawaban ? 5 : 4} className="text-center p-12 text-xs font-bold text-gray-400 tracking-widest uppercase animate-pulse">
                     ⏳ Memuat riwayat nilai...
                   </td>
                 </tr>
               ) : listNilai.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center p-12 text-sm text-gray-400 font-medium">
+                  <td colSpan={tampilkanJawaban ? 5 : 4} className="text-center p-12 text-sm text-gray-400 font-medium">
                     📭 Anda belum memiliki riwayat ujian atau nilai belum dirilis.
                   </td>
                 </tr>
@@ -198,18 +209,29 @@ export default function RekapNilaiSiswaPage() {
                     <td className="p-4 text-gray-400 text-center font-mono">{index + 1}</td>
                     
                     <td className="p-4">
-                      {/* Klik pada Nama Mapel juga akan membawa siswa ke lembar pembahasan */}
-                      <button 
-                        onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
-                        className="text-left group"
-                      >
-                        <p className="font-bold text-gray-900 group-hover:text-indigo-600 transition">
-                          {item.jadwal?.mapel?.nama_mapel || 'Tanpa Nama Mapel'}
-                        </p>
-                        <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
-                          ID MAPEL: {item.jadwal?.mapel?.id || '-'}
-                        </span>
-                      </button>
+                      {/* 🔑 Jika OFF: Tampilkan teks biasa. Jika ON: Bisa diklik ke lembar jawaban */}
+                      {tampilkanJawaban ? (
+                        <button 
+                          onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
+                          className="text-left group"
+                        >
+                          <p className="font-bold text-gray-900 group-hover:text-indigo-600 transition">
+                            {item.jadwal?.mapel?.nama_mapel || 'Tanpa Nama Mapel'}
+                          </p>
+                          <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                            ID MAPEL: {item.jadwal?.mapel?.id || '-'}
+                          </span>
+                        </button>
+                      ) : (
+                        <div>
+                          <p className="font-bold text-gray-900">
+                            {item.jadwal?.mapel?.nama_mapel || 'Tanpa Nama Mapel'}
+                          </p>
+                          <span className="font-mono text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                            ID MAPEL: {item.jadwal?.mapel?.id || '-'}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     
                     <td className="p-4 text-gray-500 font-mono text-xs">
@@ -232,15 +254,17 @@ export default function RekapNilaiSiswaPage() {
                       </span>
                     </td>
                     
-                    {/* 👁️ Kolom Aksi / Tombol Lihat Pembahasan */}
-                    <td className="p-4 text-center">
-                      <button
-                        onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
-                        className="inline-flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold text-xs px-3 py-1.5 rounded-xl border border-indigo-200/60 transition shadow-xs"
-                      >
-                        👁️ Lihat Jawaban
-                      </button>
-                    </td>
+                    {/* 👁️ 🔑 Kolom & Tombol Lihat Jawaban HANYA TAMPIL jika Admin Mengizinkan (tampilkanJawaban === true) */}
+                    {tampilkanJawaban && (
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => router.push(`/siswa/rekam-jawaban/${item.id_jadwal}`)}
+                          className="inline-flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold text-xs px-3 py-1.5 rounded-xl border border-indigo-200/60 transition shadow-xs"
+                        >
+                          👁️ Lihat Jawaban
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

@@ -12,7 +12,10 @@ export default function PengaturanPage() {
   // State: Toggle Visibilitas Pembahasan/Jawaban
   const [tampilkanJawaban, setTampilkanJawaban] = useState<boolean>(false);
 
-  // State Baru: Toleransi Pelanggaran
+  // State: Toggle Hak Akses Pembuatan Token Ujian untuk Guru
+  const [izinkanGuruToken, setIzinkanGuruToken] = useState<boolean>(true);
+
+  // State: Toleransi Pelanggaran
   const [maksimalPelanggaran, setMaksimalPelanggaran] = useState<string>('3');
 
   const [loading, setLoading] = useState(false);
@@ -23,7 +26,7 @@ export default function PengaturanPage() {
     const loadPengaturan = async () => {
       const { data } = await supabase
         .from('pengaturan_global')
-        .select('nama_sekolah, latitude_sekolah, longitude_sekolah, radius_maksimal_meter, tampilkan_jawaban, maksimal_pelanggaran')
+        .select('nama_sekolah, latitude_sekolah, longitude_sekolah, radius_maksimal_meter, tampilkan_jawaban, izinkan_guru_token, maksimal_pelanggaran')
         .maybeSingle();
       
       if (data) {
@@ -32,6 +35,7 @@ export default function PengaturanPage() {
         setLongitude(data.longitude_sekolah ? String(data.longitude_sekolah) : '');
         setRadius(data.radius_maksimal_meter ? String(data.radius_maksimal_meter) : '100');
         setTampilkanJawaban(Boolean(data.tampilkan_jawaban));
+        setIzinkanGuruToken(data.izinkan_guru_token !== undefined && data.izinkan_guru_token !== null ? Boolean(data.izinkan_guru_token) : true);
         setMaksimalPelanggaran(data.maksimal_pelanggaran ? String(data.maksimal_pelanggaran) : '3');
       }
     };
@@ -80,11 +84,12 @@ export default function PengaturanPage() {
         longitude_sekolah: parseFloat(longitude),
         radius_maksimal_meter: parseInt(radius, 10),
         tampilkan_jawaban: tampilkanJawaban,
+        izinkan_guru_token: izinkanGuruToken,
         maksimal_pelanggaran: parseInt(maksimalPelanggaran, 10)
       });
 
     if (!error) {
-      alert('⚙️ Semua pengaturan sistem, zonasi wilayah, batas pelanggaran, dan hak akses berhasil diperbarui!');
+      alert('⚙️ Semua pengaturan sistem, zonasi wilayah, hak akses guru, dan batas pelanggaran berhasil diperbarui!');
       window.location.reload();
     } else {
       alert('Gagal memperbarui pengaturan: ' + error.message);
@@ -96,7 +101,7 @@ export default function PengaturanPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Pengaturan Sistem Sekolah</h1>
-        <p className="text-gray-500 text-sm">Sesuaikan branding instansi, zonasi geofencing GPS, keamanan ujian, serta visibilitas lembar jawaban siswa.</p>
+        <p className="text-gray-500 text-sm">Sesuaikan branding instansi, hak akses token guru, zonasi geofencing GPS, serta keamanan ujian.</p>
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 max-w-xl">
@@ -114,6 +119,41 @@ export default function PengaturanPage() {
               placeholder="SMK Negeri 1 Jakarta"
               required 
             />
+          </div>
+
+          {/* TOGGLE HAK AKSES PEMBUATAN TOKEN OLEH GURU */}
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <label className="block text-xs font-bold uppercase tracking-wider text-amber-600">
+              Hak Akses Pembuatan Token Ujian (Guru)
+            </label>
+            
+            <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-200">
+              <div className="space-y-0.5 pr-4">
+                <span className="text-xs font-bold text-gray-800 block">
+                  Izinkan Guru Membuat & Mengelola Token Ujian
+                </span>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  {izinkanGuruToken 
+                    ? '🟢 **AKTIF**: Fitur input & acak token MUNCUL di dashboard Guru.' 
+                    : '🔴 **NONAKTIF**: Fitur pembuatan token HIDDEN / TIDAK ADA AKSI di dashboard Guru.'}
+                </p>
+              </div>
+
+              {/* Sakelar / Toggle Switch */}
+              <button
+                type="button"
+                onClick={() => setIzinkanGuruToken(!izinkanGuruToken)}
+                className={`relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                  izinkanGuruToken ? 'bg-amber-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    izinkanGuruToken ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* KEAMANAN & TOLERANSI PELANGGARAN */}

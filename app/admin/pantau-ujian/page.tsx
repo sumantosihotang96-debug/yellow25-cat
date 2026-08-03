@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase';
 
@@ -12,6 +12,8 @@ interface ProgressSiswa {
   nama_mapel: string;
   total_soal_tampil: number;
   jumlah_terjawab: number;
+  jumlah_pelanggaran: number;
+  is_selesai: boolean;
   waktu_terakhir_aktif: string;
 }
 
@@ -20,143 +22,168 @@ export default function PantauUjianGuruPage() {
   const [listPantau, setListPantau] = useState<ProgressSiswa[]>([]);
   const [fetching, setFetching] = useState(true);
 
-  const fetchPantauanLive = async () => {
-    setFetching(true);
+  const fetchPantauanLive = useCallback(async () => {
     try {
-      if (typeof window !== 'undefined') {
-        const idGuru = localStorage.getItem('session_guru_id');
-        
-        if (!idGuru) {
-          router.push('/login-guru');
-          return;
-        }
+      if (typeof window === 'undefined') return;
+      const idGuru = localStorage.getItem('session_guru_id');
 
-        // TAHAP 1: Ambil mapel yang diampu oleh guru aktif
-        const { data: guruMapel, error: guruMapelErr } = await supabase
-          .from('guru_mapel')
-          .select('mapel_id')
-          .eq('guru_id', idGuru);
+      if (!idGuru) {
+        router.push('/login-guru');
+        return;
+      }
 
-        if (guruMapelErr) throw guruMapelErr;
-        const mapelIds = guruMapel?.map((item) => item.mapel_id) || [];
+      // TAHAP 1: Ambil mapel yang diampu oleh guru aktif
+      const { data: guruMapel, error: guruMapelErr } = await supabase
+        .from('guru_mapel')
+        .select('mapel_id')
+        .eq('guru_id', idGuru);
 
-        if (mapelIds.length === 0) {
+      if (guruMapelErr) throw guruMapelErr;
+      const mapelIds = guruMapel?.map((item) => item.mapel_id) || [];
+
+      if (mapelIds.length === 0) {
+        setListPantau([]);
+        setFetching(false);
+        return;
+      }
+
+      // TAHAP 2: Ambil riwayat jawaban siswa
+      const { data: rawJawaban, error: errorJawaban } = await supabase
+        .from('jawaban_siswa')
+        .select(`
+          id_siswa,
+          id_jadwal,
+          updated_at,
+          jadwal:id_jadwal (
+            mapel_id,
+            jumlah_soal_tampil,
+            mapel:mapel_id (
+              nama_mapel
+            )
+          )
+        `);
+
+      if (errorJawaban) throw errorJawaban;
+
+      // TAHAP 3: Ambil data nilai_siswa untuk pelanggaran & status selesai
+      const { data: dataNilai } = await supabase
+        .from('nilai_siswa')
+        .select('id_siswa, id_jadwal, jumlah_pelanggaran, nilai');
+
+      const statusMap: { [key: string]: { pelanggaran: number; selesai: boolean } } = {};
+      dataNilai?.forEach((n) => {
+        const key = `${n.id_siswa}-${n.id_jadwal}`;
+        statusMap[key] = {
+          pelanggaran: n.jumlah_pelanggaran || 0,
+          selesai: n.nilai !== null && n.nilai !== undefined,
+        };
+      });
+
+      if (rawJawaban && rawJawaban.length > 0) {
+        const jawabanMilikGuru = (rawJawaban as any[]).filter((j) => {
+          return j.jadwal?.mapel_id && mapelIds.includes(j.jadwal.mapel_id);
+        });
+
+        if (jawabanMilikGuru.length === 0) {
           setListPantau([]);
           setFetching(false);
           return;
         }
 
-        // TAHAP 2: Ambil semua riwayat jawaban siswa yang sedang berjalan
-        const { data: rawJawaban, error: errorJawaban } = await supabase
-          .from('jawaban_siswa')
-          .select(`
-            id_siswa,
-            id_jadwal,
-            updated_at,
-            jadwal:id_jadwal (
-              mapel_id,
-              jumlah_soal_tampil,
-              mapel:mapel_id (
-                nama_mapel
-              )
-            )
-          `);
+        // TAHAP 4: Ambil referensi identitas profil
+        const { data: dataProfil } = await supabase
+          .from('profiles')
+          .select('id, nama_lengkap, kelas');
 
-        if (errorJawaban) throw errorJawaban;
+        const profilMap: { [key: string]: { nama: string; kelas: string } } = {};
+        dataProfil?.forEach((p) => {
+          profilMap[p.id] = { nama: p.nama_lengkap, kelas: p.kelas || 'Umum' };
+        });
 
-        if (rawJawaban && rawJawaban.length > 0) {
-          // Saring agar hanya mengambil riwayat jawaban yang sesuai dengan mapel ampunan guru
-          const jawabanMilikGuru = (rawJawaban as any[]).filter((j) => {
-            return j.jadwal?.mapel_id && mapelIds.includes(j.jadwal.mapel_id);
-          });
+        // TAHAP 5: Akumulasi progres siswa
+        const akumulasiProgress: { [key: string]: ProgressSiswa } = {};
 
-          if (jawabanMilikGuru.length === 0) {
-            setListPantau([]);
-            setFetching(false);
-            return;
+        jawabanMilikGuru.forEach((row) => {
+          const key = `${row.id_siswa}-${row.id_jadwal}`;
+          const infoSiswa = profilMap[row.id_siswa] || { nama: 'Siswa Tanpa Nama', kelas: '-' };
+          const infoStatus = statusMap[key] || { pelanggaran: 0, selesai: false };
+
+          if (!akumulasiProgress[key]) {
+            akumulasiProgress[key] = {
+              id_siswa: row.id_siswa,
+              id_jadwal: row.id_jadwal,
+              nama_siswa: infoSiswa.nama,
+              kelas: infoSiswa.kelas,
+              nama_mapel: row.jadwal?.mapel?.nama_mapel || 'Mata Pelajaran',
+              total_soal_tampil: row.jadwal?.jumlah_soal_tampil || 0,
+              jumlah_terjawab: 0,
+              jumlah_pelanggaran: infoStatus.pelanggaran,
+              is_selesai: infoStatus.selesai,
+              waktu_terakhir_aktif: row.updated_at,
+            };
           }
 
-          // TAHAP 3: Ambil referensi identitas profil dari tabel profiles
-          const { data: dataProfil } = await supabase
-            .from('profiles')
-            .select('id, nama_lengkap, kelas');
+          akumulasiProgress[key].jumlah_terjawab += 1;
 
-          const profilMap: { [key: string]: { nama: string; kelas: string } } = {};
-          dataProfil?.forEach((p) => {
-            profilMap[p.id] = { nama: p.nama_lengkap, kelas: p.kelas || 'Umum' };
-          });
+          if (new Date(row.updated_at) > new Date(akumulasiProgress[key].waktu_terakhir_aktif)) {
+            akumulasiProgress[key].waktu_terakhir_aktif = row.updated_at;
+          }
+        });
 
-          // TAHAP 4: Kelompokkan data jawaban per (id_siswa + id_jadwal)
-          const akumulasiProgress: { [key: string]: ProgressSiswa } = {};
+        const hasilArray = Object.values(akumulasiProgress).sort(
+          (a, b) => new Date(b.waktu_terakhir_aktif).getTime() - new Date(a.waktu_terakhir_aktif).getTime()
+        );
 
-          jawabanMilikGuru.forEach((row) => {
-            const key = `${row.id_siswa}-${row.id_jadwal}`;
-            const infoSiswa = profilMap[row.id_siswa] || { nama: 'Siswa Tanpa Nama', kelas: '-' };
-
-            if (!akumulasiProgress[key]) {
-              akumulasiProgress[key] = {
-                id_siswa: row.id_siswa,
-                id_jadwal: row.id_jadwal,
-                nama_siswa: infoSiswa.nama,
-                kelas: infoSiswa.kelas,
-                nama_mapel: row.jadwal?.mapel?.nama_mapel || 'Mata Pelajaran',
-                total_soal_tampil: row.jadwal?.jumlah_soal_tampil || 0,
-                jumlah_terjawab: 0,
-                waktu_terakhir_aktif: row.updated_at,
-              };
-            }
-
-            // Tambahkan hitungan jumlah jawaban yang sudah diisi
-            akumulasiProgress[key].jumlah_terjawab += 1;
-
-            // Cari tahu rekam waktu detak klik terakhir dari siswa tersebut
-            if (new Date(row.updated_at) > new Date(akumulasiProgress[key].waktu_terakhir_aktif)) {
-              akumulasiProgress[key].waktu_terakhir_aktif = row.updated_at;
-            }
-          });
-
-          // Konversi hasil pemetaan objek ke dalam bentuk array dan urutkan dari yang paling baru aktif
-          const hasilArray = Object.values(akumulasiProgress).sort(
-            (a, b) => new Date(b.waktu_terakhir_aktif).getTime() - new Date(a.waktu_terakhir_aktif).getTime()
-          );
-
-          setListPantau(hasilArray);
-        } else {
-          setListPantau([]);
-        }
+        setListPantau(hasilArray);
+      } else {
+        setListPantau([]);
       }
     } catch (err: any) {
       console.error('Gagal memproses pantauan progres:', err.message);
     } finally {
       setFetching(false);
     }
-  };
+  }, [router]);
 
   useEffect(() => {
     fetchPantauanLive();
 
-    // Sinyal radar diperbarui otomatis setiap 15 detik agar terasa real-time
-    const interval = setInterval(() => {
-      fetchPantauanLive();
-    }, 15000);
+    // ⚡ REALTIME SUBSCRIPTION (Pengganti polling interval manual)
+    const channelJawaban = supabase
+      .channel('realtime-monitoring-ujian')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jawaban_siswa' }, () => {
+        fetchPantauanLive();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'nilai_siswa' }, () => {
+        fetchPantauanLive();
+      })
+      .subscribe();
 
-    return () => clearInterval(interval);
-  }, [router]);
+    return () => {
+      supabase.removeChannel(channelJawaban);
+    };
+  }, [fetchPantauanLive]);
 
   return (
-    <div className="space-y-6 p-4 max-w-6xl mx-auto">
+    <div className="space-y-6 p-4 max-w-7xl mx-auto">
       {/* PANEL CONTROL HEADER */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div>
-          <h1 className="text-xl font-black text-gray-900">📡 Radar Pantau Progres Ujian (Live)</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Memantau aktivitas pengerjaan butir soal siswa berdasarkan data jawaban yang masuk ke server.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-black text-gray-900">📡 Radar Pantau Progres Ujian (Live)</h1>
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">Memantau aktivitas pengerjaan &amp; indikasi pelanggaran siswa secara real-time.</p>
         </div>
         <button 
           onClick={fetchPantauanLive} 
           disabled={fetching}
           className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-md shrink-0 flex items-center gap-2"
         >
-          {fetching ? '🔄 Memindai Sinyal...' : '🔄 Sinkronkan Radar'}
+          {fetching ? '🔄 Memindai...' : '🔄 Refresh Data'}
         </button>
       </div>
 
@@ -170,22 +197,24 @@ export default function PantauUjianGuruPage() {
                 <th className="p-4">Nama Lengkap Siswa</th>
                 <th className="p-4 w-28 text-center">Kelas</th>
                 <th className="p-4">Mata Pelajaran</th>
-                <th className="p-4 text-center w-40">Progres Isian</th>
-                <th className="p-4 text-center w-44">Bilah Visual Kontrol</th>
-                <th className="p-4 text-center w-36">Detak Aktivitas</th>
+                <th className="p-4 text-center w-36">Progres Isian</th>
+                <th className="p-4 text-center w-40">Bilah Visual</th>
+                <th className="p-4 text-center w-32">Pelanggaran</th>
+                <th className="p-4 text-center w-32">Status</th>
+                <th className="p-4 text-center w-36">Aktivitas Terakhir</th>
               </tr>
             </thead>
             <tbody className="text-gray-700 divide-y divide-gray-100 font-semibold">
               {fetching && listPantau.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center p-12 text-gray-400 font-bold tracking-wide uppercase animate-pulse">
-                    ⏳ Sedang menangkap sinyal pergerakan lembar siswa...
+                  <td colSpan={9} className="text-center p-12 text-gray-400 font-bold tracking-wide uppercase animate-pulse">
+                    ⏳ Sedang menghubungkan dengan radar pengerjaan siswa...
                   </td>
                 </tr>
               ) : listPantau.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center p-12 text-gray-400 font-medium">
-                    📭 Belum ada riwayat aktivitas pengerjaan yang terdeteksi dari siswa untuk ujian Anda.
+                  <td colSpan={9} className="text-center p-12 text-gray-400 font-medium">
+                    📭 Belum ada riwayat aktivitas pengerjaan yang terdeteksi.
                   </td>
                 </tr>
               ) : (
@@ -204,25 +233,52 @@ export default function PantauUjianGuruPage() {
                         </span>
                       </td>
                       <td className="p-4 text-gray-600 font-medium">{item.nama_mapel}</td>
-                      {/* PROGRES SOAL DALAM ANGKA */}
+                      
+                      {/* PROGRES SOAL */}
                       <td className="p-4 text-center font-mono font-bold text-gray-900">
                         <span className="text-indigo-600 font-black">{item.jumlah_terjawab}</span> / {item.total_soal_tampil} Soal
                       </td>
-                      {/* PROGRESS BAR VISUAL PERSENTASE */}
+
+                      {/* PROGRESS BAR */}
                       <td className="p-4">
-                        <div className="flex items-center gap-3 justify-center">
-                          <div className="w-28 bg-gray-100 rounded-full h-2 overflow-hidden border border-gray-200">
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="w-24 bg-gray-100 rounded-full h-2 overflow-hidden border border-gray-200">
                             <div 
                               className={`h-full transition-all duration-300 ${persen === 100 ? 'bg-emerald-500' : 'bg-indigo-600'}`}
                               style={{ width: `${persen}%` }}
                             ></div>
                           </div>
-                          <span className={`font-mono font-bold w-10 text-right ${persen === 100 ? 'text-emerald-600' : 'text-gray-500'}`}>
+                          <span className={`font-mono font-bold text-[11px] w-8 text-right ${persen === 100 ? 'text-emerald-600' : 'text-gray-500'}`}>
                             {persen}%
                           </span>
                         </div>
                       </td>
-                      {/* LOG DETAK WAKTU TERAKHIR AKTIF KLIK JAWABAN */}
+
+                      {/* STATUS PELANGGARAN */}
+                      <td className="p-4 text-center">
+                        {item.jumlah_pelanggaran > 0 ? (
+                          <span className="bg-red-50 text-red-600 border border-red-200 font-mono font-black px-2.5 py-1 rounded-lg text-xs">
+                            ⚠️ {item.jumlah_pelanggaran}x
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 font-mono text-xs">0</span>
+                        )}
+                      </td>
+
+                      {/* STATUS PENGERJAAN */}
+                      <td className="p-4 text-center">
+                        {item.is_selesai ? (
+                          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-2.5 py-1 rounded-lg text-[10px] uppercase">
+                            ✅ Selesai
+                          </span>
+                        ) : (
+                          <span className="bg-amber-50 text-amber-700 border border-amber-200 font-bold px-2.5 py-1 rounded-lg text-[10px] uppercase animate-pulse">
+                            📝 Mengerjakan
+                          </span>
+                        )}
+                      </td>
+
+                      {/* DETAK AKTIVITAS TERAKHIR */}
                       <td className="p-4 text-center text-indigo-600 font-mono text-[11px]">
                         ⚡ {waktuAktif} WIB
                       </td>

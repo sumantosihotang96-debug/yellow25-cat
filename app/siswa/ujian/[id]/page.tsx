@@ -51,7 +51,6 @@ export default function LembarUjianPage() {
   const router = useRouter();
   const params = useParams();
   
-  // Mengambil [id] langsung dari rute dinamis URL
   const idJadwal = params?.id as string;
 
   const [namaSiswa, setNamaSiswa] = useState<string>('');
@@ -71,14 +70,50 @@ export default function LembarUjianPage() {
 
   // Status Pelanggaran
   const [pelanggaranCount, setPelanggaranCount] = useState<number>(0);
-
-  const [isFullScreenRequired, setIsFullScreenRequired] = useState(false);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
   const [showPelanggaranPopup, setShowPelanggaranPopup] = useState(false);
   const [isForceSubmitted, setIsForceSubmitted] = useState(false);
   const [soalBelumDijawab, setSoalBelumDijawab] = useState<number[]>([]);
 
   const isInteractingRef = useRef(false);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  // 🔒 MENCEGAH LAYAR HP / LAPTOP SLEEP (SCREEN WAKE LOCK API)
+  const mintaLayarTetapAktif = useCallback(async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch (err) {
+      console.log('Fasilitas Wake Lock tidak didukung atau ditolak oleh perangkat:', err);
+    }
+  }, []);
+
+  const lepasLayarTetapAktif = useCallback(async () => {
+    if (wakeLockRef.current) {
+      try {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      } catch (err) {
+        console.log('Gagal melepas wake lock:', err);
+      }
+    }
+  }, []);
+
+  // Mencegah sleep ketika tab/layar aktif kembali
+  useEffect(() => {
+    const handleReaktivasiLayar = () => {
+      if (document.visibilityState === 'visible' && hasAgreedRules) {
+        mintaLayarTetapAktif();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleReaktivasiLayar);
+    return () => {
+      document.removeEventListener('visibilitychange', handleReaktivasiLayar);
+      lepasLayarTetapAktif();
+    };
+  }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
 
   // 📈 EVALUASI SKOR AKHIR DAN SIMPAN
   const eksekusiKirimJawabanAkhir = useCallback(async () => {
@@ -94,22 +129,8 @@ export default function LembarUjianPage() {
         return;
       }
 
-      let namaSiswaTerbaru = namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa Tanpa Nama';
-      let kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
-
-      const { data: profileDb } = await supabase
-        .from('profiles')
-        .select('nama_lengkap, kelas')
-        .eq('id', uuidSiswaLogin)
-        .maybeSingle();
-
-      if (profileDb) {
-        if (profileDb.nama_lengkap) namaSiswaTerbaru = profileDb.nama_lengkap;
-        if (profileDb.kelas) {
-          kelasSiswaTerbaru = profileDb.kelas.trim().toUpperCase();
-          localStorage.setItem('session_siswa_kelas_lengkap', kelasSiswaTerbaru);
-        }
-      }
+      const namaSiswaTerbaru = namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa';
+      const kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
 
       let jumlahBenar = 0;
       let jumlahSalah = 0;
@@ -129,8 +150,6 @@ export default function LembarUjianPage() {
 
       const totalSoal = listSoalUjian.length;
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
-
-      // Ambil jumlah pelanggaran dari state paling baru
       const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
 
       await supabase
@@ -151,6 +170,8 @@ export default function LembarUjianPage() {
       localStorage.removeItem(`pelanggaran_${idJadwal}`);
       localStorage.removeItem(`urutan_soal_${idJadwal}_${uuidSiswaLogin}`);
 
+      await lepasLayarTetapAktif();
+
       if (document.fullscreenElement) {
         await document.exitFullscreen().catch(() => {});
       }
@@ -162,7 +183,7 @@ export default function LembarUjianPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting]);
+  }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting, lepasLayarTetapAktif]);
 
   // 1. Validasi Sesi & Fetch Data
   useEffect(() => {
@@ -184,7 +205,6 @@ export default function LembarUjianPage() {
           setMaxPelanggaran(config.maksimal_pelanggaran);
         }
 
-        // Cek riwayat nilai / pelanggaran yang sudah ada di Supabase
         const { data: sudahAdaNilai } = await supabase
           .from('nilai_siswa')
           .select('id, jumlah_pelanggaran, nilai')
@@ -199,11 +219,8 @@ export default function LembarUjianPage() {
           return;
         }
 
-        // Sinkronkan riwayat pelanggaran dari Supabase / LocalStorage
-        let initialPelanggaran = 0;
-        if (sudahAdaNilai?.jumlah_pelanggaran) {
-          initialPelanggaran = sudahAdaNilai.jumlah_pelanggaran;
-        } else {
+        let initialPelanggaran = sudahAdaNilai?.jumlah_pelanggaran || 0;
+        if (!initialPelanggaran) {
           const savedLocal = localStorage.getItem(`pelanggaran_${idJadwal}`);
           if (savedLocal) initialPelanggaran = parseInt(savedLocal, 10);
         }
@@ -221,7 +238,7 @@ export default function LembarUjianPage() {
         let jurusanTarget = '';
 
         if (dataProfil) {
-          setNamaSiswa(dataProfil.nama_lengkap || 'Siswa Tanpa Nama');
+          setNamaSiswa(dataProfil.nama_lengkap || 'Siswa');
           if (dataProfil.kelas) {
             kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
             localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
@@ -246,12 +263,10 @@ export default function LembarUjianPage() {
         const jadwal = dataJadwal as unknown as DetailJadwal;
         setDetailJadwal(jadwal);
 
-        const mapelIdString = String(jadwal.mapel_id).trim();
-
         let querySoal = supabase
           .from('soal')
           .select('*')
-          .eq('id_mapel', mapelIdString);
+          .eq('id_mapel', String(jadwal.mapel_id).trim());
 
         if (tingkatKelas) {
           querySoal = querySoal.or(`kelas_target.eq."${tingkatKelas}",kelas_target.eq."${kelasUtuhSiswa}",kelas_target.eq.UMUM,kelas_target.is.null`);
@@ -285,7 +300,6 @@ export default function LembarUjianPage() {
 
         setJawabanSiswa(mappingJawaban);
 
-        // LOGIKA URUTAN / ACAK SOAL KONSISTEN PER SISWA
         let finalSoalList: Soal[] = [];
         const storageKeyUrutan = `urutan_soal_${idJadwal}_${siswaId}`;
         const savedOrderJson = localStorage.getItem(storageKeyUrutan);
@@ -329,6 +343,8 @@ export default function LembarUjianPage() {
   const handleMulaiUjianUlasan = async () => {
     isInteractingRef.current = true;
     setHasAgreedRules(true);
+    await mintaLayarTetapAktif();
+
     try {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
@@ -346,22 +362,18 @@ export default function LembarUjianPage() {
     if (!detailJadwal || !hasAgreedRules) return;
 
     const hitungMundurWaktuAktual = () => {
-      try {
-        let formatJamClean = detailJadwal.jam_mulai.trim().replace(/\./g, ':');
-        if (formatJamClean.split(':').length === 2) formatJamClean = `${formatJamClean}:00`;
+      let formatJamClean = detailJadwal.jam_mulai.trim().replace(/\./g, ':');
+      if (formatJamClean.split(':').length === 2) formatJamClean = `${formatJamClean}:00`;
 
-        const targetString = `${detailJadwal.tanggal_ujian.trim()}T${formatJamClean}`;
-        const waktuSelesaiEpoch = new Date(targetString).getTime() + (detailJadwal.durasi_menit * 60000);
-        const selisihDetikReal = Math.floor((waktuSelesaiEpoch - Date.now()) / 1000);
+      const targetString = `${detailJadwal.tanggal_ujian.trim()}T${formatJamClean}`;
+      const waktuSelesaiEpoch = new Date(targetString).getTime() + (detailJadwal.durasi_menit * 60000);
+      const selisihDetikReal = Math.floor((waktuSelesaiEpoch - Date.now()) / 1000);
 
-        if (selisihDetikReal <= 0) {
-          setSisaDetik(0);
-          eksekusiKirimJawabanAkhir();
-        } else {
-          setSisaDetik(selisihDetikReal);
-        }
-      } catch (error) {
-        console.error('Error parsing datetime:', error);
+      if (selisihDetikReal <= 0) {
+        setSisaDetik(0);
+        eksekusiKirimJawabanAkhir();
+      } else {
+        setSisaDetik(selisihDetikReal);
       }
     };
 
@@ -370,20 +382,16 @@ export default function LembarUjianPage() {
     return () => clearInterval(intervalId);
   }, [detailJadwal, hasAgreedRules, eksekusiKirimJawabanAkhir]);
 
-  // 🔄 FUNGSI UPDATE PELANGGARAN KE DB SECARA REAL-TIME
   const simpanPelanggaranKeDb = async (count: number) => {
     try {
       const siswaId = localStorage.getItem('session_siswa_id');
       if (!siswaId || !idJadwal) return;
 
-      const namaSiswaTerbaru = namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa';
-      const kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
-
       await supabase.from('nilai_siswa').upsert({
         id_siswa: siswaId,
         id_jadwal: idJadwal,
-        nama_siswa: namaSiswaTerbaru,
-        kelas: kelasSiswaTerbaru,
+        nama_siswa: namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa',
+        kelas: localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM',
         jumlah_pelanggaran: count,
       }, { onConflict: 'id_siswa,id_jadwal' });
     } catch (err) {
@@ -391,7 +399,7 @@ export default function LembarUjianPage() {
     }
   };
 
-  // 3. Anti-Cheat Guard (Ditingkatkan)
+  // 3. Anti-Cheat Guard
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -401,8 +409,6 @@ export default function LembarUjianPage() {
       setPelanggaranCount((prev) => {
         const updateNilai = prev + 1;
         localStorage.setItem(`pelanggaran_${idJadwal}`, updateNilai.toString());
-
-        // Simpan langsung jumlah pelanggaran ke Supabase
         simpanPelanggaranKeDb(updateNilai);
 
         if (updateNilai >= maxPelanggaran) {
@@ -418,10 +424,7 @@ export default function LembarUjianPage() {
 
     const handleFullScreenChange = () => {
       if (!document.fullscreenElement) {
-        setIsFullScreenRequired(true);
         tanganiPelanggaranLayar();
-      } else {
-        setIsFullScreenRequired(false);
       }
     };
 
@@ -492,11 +495,11 @@ export default function LembarUjianPage() {
 
   const paksaKembaliFullScreen = async () => {
     isInteractingRef.current = true;
+    await mintaLayarTetapAktif();
     try {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
       }
-      setIsFullScreenRequired(false);
       setShowPelanggaranPopup(false);
     } catch {}
     setTimeout(() => { isInteractingRef.current = false; }, 500);
@@ -543,7 +546,7 @@ export default function LembarUjianPage() {
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-3 leading-relaxed text-slate-700">
               <p className="font-bold text-slate-900">Harap diperhatikan aturan keamanan berikut:</p>
               <ul className="list-disc pl-4 space-y-1.5 text-slate-600">
-                <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong>.</li>
+                <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong> &amp; <strong className="text-slate-800">Tanpa Sleep</strong>.</li>
                 <li><strong className="text-red-600">Dilarang</strong> berpindah tab, membuka aplikasi lain, atau memperkecil browser.</li>
                 <li>Fitur <strong className="text-red-600">Copy-Paste</strong> dan klik kanan telah dinonaktifkan.</li>
                 <li>Batas toleransi pelanggaran adalah <strong className="text-red-600">{maxPelanggaran} Kali</strong>.</li>
@@ -552,7 +555,7 @@ export default function LembarUjianPage() {
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 font-medium">
-              💡 Pastikan koneksi internet Anda stabil dan tidak ada notifikasi aplikasi lain yang mengganggu.
+              💡 Pastikan baterai dan koneksi internet Anda stabil selama ujian berlangsung.
             </div>
 
             <button
@@ -761,39 +764,17 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* MODAL: PELANGGARAN FOKUS */}
-      {showPelanggaranPopup && !isFullScreenRequired && (
+      {/* MODAL CONSOLIDATED: PELANGGARAN FOKUS / FULLSCREEN */}
+      {showPelanggaranPopup && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <span className="text-3xl block">⚠️</span>
-            <h3 className="text-sm font-black text-red-600 uppercase tracking-wider">Deteksi Pelanggaran Fokus</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">Sistem mencatat Anda meninggalkan jendela ujian.</p>
-            <div className="bg-red-50 text-red-600 font-bold p-3 rounded-xl text-xs border border-red-200">
-              Total Pelanggaran: {pelanggaranCount} / {maxPelanggaran}
-            </div>
-            <button
-              onClick={() => {
-                isInteractingRef.current = true;
-                setShowPelanggaranPopup(false);
-                setTimeout(() => { isInteractingRef.current = false; }, 500);
-              }}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold p-3 rounded-xl text-xs uppercase tracking-widest shadow-md transition"
-            >
-              Saya Mengerti, Lanjutkan
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: FULLSCREEN REQUIRED */}
-      {isFullScreenRequired && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
             <span className="text-3xl block">🚨</span>
-            <h3 className="text-sm font-black text-red-600 uppercase tracking-wider">Aturan Layar Penuh</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">Anda tidak diizinkan memperkecil browser selama ujian berlangsung.</p>
-            <div className="bg-red-50 text-red-600 font-bold p-2.5 rounded-xl text-xs border border-red-200 font-mono">
-              Pelanggaran: {pelanggaranCount} / {maxPelanggaran}
+            <h3 className="text-sm font-black text-red-600 uppercase tracking-wider">Peringatan Keamanan Ujian</h3>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Sistem mencatat Anda keluar dari mode ujian layar penuh atau meninggalkan jendela ujian.
+            </p>
+            <div className="bg-red-50 text-red-600 font-bold p-3 rounded-xl text-xs border border-red-200 font-mono">
+              Total Pelanggaran: {pelanggaranCount} / {maxPelanggaran}
             </div>
             <button
               onClick={paksaKembaliFullScreen}
