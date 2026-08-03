@@ -252,7 +252,7 @@ export default function GuruDashboardPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4 pb-20 sm:pb-6">
+    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4 pb-24 sm:pb-6">
       {/* HEADER PROFIL GURU */}
       <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
@@ -334,11 +334,11 @@ export default function GuruDashboardPage() {
                     </div>
                   </div>
 
-                  {/* AKSI SOAL TERIKAT PER MAPEL */}
+                  {/* AKSI SOAL TERIKAT PER MAPEL (DIARAHKAN KE /guru/bank-soal) */}
                   <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-gray-600">📝 Soal Ujian:</span>
                     <button
-                      onClick={() => router.push(`/guru/soal?mapel_id=${item.id}`)}
+                      onClick={() => router.push(`/guru/bank-soal?mapel_id=${item.id}`)}
                       className="px-3 py-1.5 text-xs font-bold bg-blue-600 active:bg-blue-700 text-white rounded-lg shadow-sm transition flex items-center gap-1"
                     >
                       Kelola Soal ➔
@@ -440,11 +440,11 @@ export default function GuruDashboardPage() {
                         </span>
                       </td>
 
-                      {/* TOMBOL KELOLA SOAL TERIKAT */}
+                      {/* TOMBOL KELOLA SOAL TERIKAT (DIARAHKAN KE /guru/bank-soal) */}
                       <td className="py-3.5 text-center">
                         <button
                           type="button"
-                          onClick={() => router.push(`/guru/soal?mapel_id=${item.id}`)}
+                          onClick={() => router.push(`/guru/bank-soal?mapel_id=${item.id}`)}
                           className="px-2.5 py-1.5 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition shadow-xs"
                         >
                           ⚙️ Kelola Soal
@@ -518,34 +518,52 @@ export default function GuruDashboardPage() {
       </div>
 
       {/* 📱 MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-2 sm:hidden z-50 flex justify-around items-center shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 px-2 py-2 sm:hidden z-50 flex justify-around items-center shadow-lg">
+        {/* 1. Home */}
         <button
-          onClick={() => router.push('/guru/dashboard')}
-          className="flex flex-col items-center gap-0.5 text-blue-600 font-bold"
+          type="button"
+          onClick={() => router.push('/guru')}
+          className="flex flex-col items-center gap-0.5 text-blue-600 font-bold active:scale-95 transition min-w-[50px]"
         >
           <span className="text-lg">🏠</span>
           <span className="text-[10px]">Home</span>
         </button>
 
+        {/* 2. Bank Soal */}
         <button
-          onClick={() => router.push('/guru/soal')}
-          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
+          type="button"
+          onClick={() => router.push('/guru/bank-soal')}
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
         >
           <span className="text-lg">📝</span>
-          <span className="text-[10px]">Bank Soal</span>
+          <span className="text-[10px]">Soal</span>
         </button>
 
+        {/* 3. Live Siswa / Pantau Ujian */}
         <button
+          type="button"
+          onClick={() => router.push('/guru/pantau-ujian')}
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
+        >
+          <span className="text-lg">📡</span>
+          <span className="text-[10px]">Live Siswa</span>
+        </button>
+
+        {/* 4. Rekap Nilai */}
+        <button
+          type="button"
           onClick={() => router.push('/guru/rekap-nilai')}
-          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
         >
           <span className="text-lg">📊</span>
           <span className="text-[10px]">Nilai</span>
         </button>
 
+        {/* 5. Keluar */}
         <button
+          type="button"
           onClick={handleLogout}
-          className="flex flex-col items-center gap-0.5 text-rose-500 hover:text-rose-600 transition"
+          className="flex flex-col items-center gap-0.5 text-rose-500 hover:text-rose-600 active:scale-95 transition min-w-[50px]"
         >
           <span className="text-lg">🚪</span>
           <span className="text-[10px]">Keluar</span>
