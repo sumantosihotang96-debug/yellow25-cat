@@ -6,6 +6,7 @@ import { supabase } from '@/utils/supabase';
 
 interface Soal {
   id: string;
+  group_id?: string | null; // 🔗 Membaca status grup/ikatan soal
   pertanyaan: string;
   gambar_soal?: string | null;
   opsi_a: string;
@@ -37,7 +38,7 @@ interface DetailJadwal {
   } | null;
 }
 
-// Helper Pengacakan Soal (Fisher-Yates)
+// 🔀 Helper Pengacakan Array Biasa (Fisher-Yates)
 const acakArray = <T,>(array: T[]): T[] => {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -45,6 +46,34 @@ const acakArray = <T,>(array: T[]): T[] => {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+};
+
+// 🔗 Helper Pengacakan Berbasis Group ID (Runtut di Dalam Grup, Acak Antar-Grup)
+const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
+  if (!daftarSoal || daftarSoal.length === 0) return [];
+
+  // 1. Kelompokkan soal berdasarkan group_id menggunakan Map
+  const mapGrup = new Map<string, Soal[]>();
+
+  daftarSoal.forEach((soal) => {
+    const keyGrup = soal.group_id && soal.group_id.trim() !== '' 
+      ? `GROUP_${soal.group_id}` 
+      : `SOLO_${soal.id}`;
+
+    if (!mapGrup.has(keyGrup)) {
+      mapGrup.set(keyGrup, []);
+    }
+    mapGrup.get(keyGrup)!.push(soal);
+  });
+
+  // 2. Ambil seluruh paket grup sebagai array
+  const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
+
+  // 3. Acak urutan ANTAR-GRUP saja
+  const grupTeracak = acakArray(daftarSeluruhGrup);
+
+  // 4. Gabungkan kembali (Soal dalam grup tetap runtut & berdampingan)
+  return grupTeracak.flat();
 };
 
 export default function LembarUjianPage() {
@@ -318,8 +347,9 @@ export default function LembarUjianPage() {
               finalSoalList = [...finalSoalList, ...missingSoal];
             }
           } else {
-            const randomized = acakArray(dataSoal);
-            const limitedRandom = randomized.slice(0, jadwal.jumlah_soal_tampil);
+            // 🔗 Gunakan Pengacakan Berbasis Grup (Aman & Terisolasi)
+            const randomizedGrup = acakSoalGrup(dataSoal);
+            const limitedRandom = randomizedGrup.slice(0, jadwal.jumlah_soal_tampil);
             const orderIds = limitedRandom.map((s) => s.id);
             localStorage.setItem(storageKeyUrutan, JSON.stringify(orderIds));
             finalSoalList = limitedRandom;

@@ -14,6 +14,24 @@ interface MapelDetail {
   token_ujian?: string;
 }
 
+// Interface pendukung query Supabase Join
+interface RelasiMapelRow {
+  mapel_id: string;
+  mapel: {
+    id: string;
+    nama_mapel: string;
+    kelas: string | null;
+    jurusan: string | null;
+    acak_soal: boolean | null;
+  } | null;
+}
+
+interface JadwalUjianRow {
+  id: string;
+  mapel_id: string;
+  token_ujian: string | null;
+}
+
 export default function GuruDashboardPage() {
   const router = useRouter();
   const [namaGuru, setNamaGuru] = useState('');
@@ -26,6 +44,13 @@ export default function GuruDashboardPage() {
 
   // Sakelar dari Admin untuk mengontrol akses token Guru
   const [izinkanGuruToken, setIzinkanGuruToken] = useState<boolean>(true);
+
+  // Fungsi Pembantu Tanggal Lokal (YYYY-MM-DD)
+  const getHariIniLokal = () => {
+    const tgl = new Date();
+    const offset = tgl.getTimezoneOffset() * 60000;
+    return new Date(tgl.getTime() - offset).toISOString().split('T')[0];
+  };
 
   useEffect(() => {
     const muatDataDashboard = async () => {
@@ -69,7 +94,7 @@ export default function GuruDashboardPage() {
           const mapelTempMap: Record<string, MapelDetail> = {};
 
           if (relasiMapel) {
-            relasiMapel.forEach((item: any) => {
+            (relasiMapel as unknown as RelasiMapelRow[]).forEach((item) => {
               if (item.mapel) {
                 mapelIds.push(item.mapel.id);
                 mapelTempMap[item.mapel.id] = {
@@ -90,10 +115,10 @@ export default function GuruDashboardPage() {
               .from('jadwal_ujian')
               .select('id, mapel_id, token_ujian')
               .in('mapel_id', mapelIds)
-              .order('tanggal_ujian', { ascending: false });
+              .order('created_at', { ascending: false }); // Mengambil jadwal terbaru
 
             if (jadwalData) {
-              jadwalData.forEach((j: any) => {
+              (jadwalData as JadwalUjianRow[]).forEach((j) => {
                 if (mapelTempMap[j.mapel_id] && !mapelTempMap[j.mapel_id].jadwal_id) {
                   mapelTempMap[j.mapel_id].jadwal_id = j.id;
                   mapelTempMap[j.mapel_id].token_ujian = j.token_ujian || '';
@@ -102,11 +127,7 @@ export default function GuruDashboardPage() {
             }
 
             // 3. Hitung Statistik
-            const tgl = new Date();
-            const yyyy = tgl.getFullYear();
-            const mm = String(tgl.getMonth() + 1).padStart(2, '0');
-            const dd = String(tgl.getDate()).padStart(2, '0');
-            const hariIniLokal = `${yyyy}-${mm}-${dd}`;
+            const hariIniLokal = getHariIniLokal();
 
             const { count: countSoal } = await supabase
               .from('soal')
@@ -190,6 +211,7 @@ export default function GuruDashboardPage() {
       const tokenClean = item.token_ujian.trim().toUpperCase();
 
       if (item.jadwal_id) {
+        // Jika jadwal sudah ada, update token-nya
         const { error } = await supabase
           .from('jadwal_ujian')
           .update({ token_ujian: tokenClean })
@@ -197,11 +219,13 @@ export default function GuruDashboardPage() {
 
         if (error) throw error;
       } else {
-        const tgl = new Date();
-        const yyyy = tgl.getFullYear();
-        const mm = String(tgl.getMonth() + 1).padStart(2, '0');
-        const dd = String(tgl.getDate()).padStart(2, '0');
-        const hariIniLokal = `${yyyy}-${mm}-${dd}`;
+        // Hitung total soal aktual untuk mapel ini sebelum me-insert jadwal baru
+        const { count } = await supabase
+          .from('soal')
+          .select('*', { count: 'exact', head: true })
+          .eq('id_mapel', item.id);
+
+        const hariIniLokal = getHariIniLokal();
 
         const { data, error } = await supabase
           .from('jadwal_ujian')
@@ -212,7 +236,7 @@ export default function GuruDashboardPage() {
               tanggal_ujian: hariIniLokal,
               jam_mulai: '08:00',
               durasi_menit: 90,
-              jumlah_soal_tampil: 40,
+              jumlah_soal_tampil: count && count > 0 ? count : 40, // Dinamis sesuai jumlah soal aktual
             },
           ])
           .select()
@@ -228,9 +252,10 @@ export default function GuruDashboardPage() {
       }
 
       alert(`🎉 Berhasil! Token "${tokenClean}" tersimpan.`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Gagal menyinkronkan token:', err);
-      alert('❌ Gagal menyimpan token: ' + (err.message || 'Terjadi kesalahan server'));
+      const errorMessage = err instanceof Error ? err.message : 'Terjadi kesalahan server';
+      alert('❌ Gagal menyimpan token: ' + errorMessage);
     } finally {
       setSavingTokenId(null);
     }
@@ -254,7 +279,7 @@ export default function GuruDashboardPage() {
         </div>
         <button
           onClick={() => router.push('/guru/rekap-nilai')}
-          className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition shrink-0 flex items-center justify-center gap-2"
+          className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition shrink-0 flex items-center justify-center gap-2 cursor-pointer"
         >
           📊 Lihat Rekap Nilai Siswa
         </button>
@@ -282,7 +307,7 @@ export default function GuruDashboardPage() {
           </div>
           <div>
             <span className="block text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">
-              Ujian Aktif
+              Ujian Aktif Hari Ini
             </span>
             <span className="text-base sm:text-xl font-black text-emerald-600 font-mono">
               {stats.ujianAktif} <span className="text-[10px] sm:text-xs font-medium text-gray-500">Sesi</span>
@@ -308,7 +333,7 @@ export default function GuruDashboardPage() {
           </div>
         ) : (
           <>
-            {/* 📱 MOBILE CARD VIEW (Muncul pada mode layar kecil < md) */}
+            {/* 📱 MOBILE CARD VIEW */}
             <div className="grid grid-cols-1 gap-3 md:hidden">
               {mapelDiampu.map((item, index) => (
                 <div key={item.id} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-3">
@@ -331,8 +356,9 @@ export default function GuruDashboardPage() {
                   <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-gray-600">📝 Soal Ujian:</span>
                     <button
+                      type="button"
                       onClick={() => router.push(`/guru/bank-soal?mapel_id=${item.id}`)}
-                      className="px-3 py-1.5 text-xs font-bold bg-blue-600 active:bg-blue-700 text-white rounded-lg shadow-sm transition flex items-center gap-1"
+                      className="px-3 py-1.5 text-xs font-bold bg-blue-600 active:bg-blue-700 text-white rounded-lg shadow-sm transition flex items-center gap-1 cursor-pointer"
                     >
                       Kelola Soal ➔
                     </button>
@@ -382,7 +408,7 @@ export default function GuruDashboardPage() {
                         <button
                           type="button"
                           onClick={() => handleGenerateToken(item.id)}
-                          className="p-2 text-gray-600 bg-gray-200 active:bg-gray-300 rounded-lg transition shrink-0 font-bold text-xs"
+                          className="p-2 text-gray-600 bg-gray-200 active:bg-gray-300 rounded-lg transition shrink-0 font-bold text-xs cursor-pointer"
                         >
                           Acak 🎲
                         </button>
@@ -390,7 +416,7 @@ export default function GuruDashboardPage() {
                           type="button"
                           disabled={savingTokenId === item.id}
                           onClick={() => handleSimpanToken(item)}
-                          className="px-3 py-2 text-xs font-bold bg-emerald-600 active:bg-emerald-700 text-white rounded-lg transition shrink-0 disabled:opacity-50 shadow-sm"
+                          className="px-3 py-2 text-xs font-bold bg-emerald-600 active:bg-emerald-700 text-white rounded-lg transition shrink-0 disabled:opacity-50 shadow-sm cursor-pointer"
                         >
                           {savingTokenId === item.id ? '...' : 'Simpan'}
                         </button>
@@ -401,7 +427,7 @@ export default function GuruDashboardPage() {
               ))}
             </div>
 
-            {/* 💻 DESKTOP TABEL VIEW (Muncul pada mode layar sedang ke atas >= md) */}
+            {/* 💻 DESKTOP TABEL VIEW */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -438,7 +464,7 @@ export default function GuruDashboardPage() {
                         <button
                           type="button"
                           onClick={() => router.push(`/guru/bank-soal?mapel_id=${item.id}`)}
-                          className="px-2.5 py-1.5 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition shadow-xs"
+                          className="px-2.5 py-1.5 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition shadow-xs cursor-pointer"
                         >
                           ⚙️ Kelola Soal
                         </button>
@@ -486,7 +512,7 @@ export default function GuruDashboardPage() {
                             <button
                               type="button"
                               onClick={() => handleGenerateToken(item.id)}
-                              className="p-1.5 text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 rounded-lg border border-gray-200 transition text-xs font-bold"
+                              className="p-1.5 text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 rounded-lg border border-gray-200 transition text-xs font-bold cursor-pointer"
                             >
                               Acak 🎲
                             </button>
@@ -494,7 +520,7 @@ export default function GuruDashboardPage() {
                               type="button"
                               disabled={savingTokenId === item.id}
                               onClick={() => handleSimpanToken(item)}
-                              className="px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition disabled:opacity-50"
+                              className="px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition disabled:opacity-50 cursor-pointer"
                             >
                               {savingTokenId === item.id ? '...' : 'Simpan'}
                             </button>
