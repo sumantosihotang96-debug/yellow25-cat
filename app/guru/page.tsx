@@ -236,13 +236,6 @@ export default function GuruDashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    if (confirm('Apakah Anda yakin ingin keluar?')) {
-      localStorage.clear();
-      router.push('/');
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center text-xs font-bold text-gray-400 tracking-wider uppercase animate-pulse">
@@ -252,7 +245,7 @@ export default function GuruDashboardPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4 pb-24 sm:pb-6">
+    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6">
       {/* HEADER PROFIL GURU */}
       <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
@@ -315,8 +308,8 @@ export default function GuruDashboardPage() {
           </div>
         ) : (
           <>
-            {/* 📱 MOBILE CARD VIEW */}
-            <div className="grid grid-cols-1 gap-3 sm:hidden">
+            {/* 📱 MOBILE CARD VIEW (Muncul pada mode layar kecil < md) */}
+            <div className="grid grid-cols-1 gap-3 md:hidden">
               {mapelDiampu.map((item, index) => (
                 <div key={item.id} className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-3">
                   <div className="flex justify-between items-start gap-2">
@@ -334,7 +327,7 @@ export default function GuruDashboardPage() {
                     </div>
                   </div>
 
-                  {/* AKSI SOAL TERIKAT PER MAPEL (DIARAHKAN KE /guru/bank-soal) */}
+                  {/* AKSI SOAL TERIKAT PER MAPEL */}
                   <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-gray-600">📝 Soal Ujian:</span>
                     <button
@@ -408,8 +401,8 @@ export default function GuruDashboardPage() {
               ))}
             </div>
 
-            {/* 💻 DESKTOP TABEL VIEW */}
-            <div className="hidden sm:block overflow-x-auto">
+            {/* 💻 DESKTOP TABEL VIEW (Muncul pada mode layar sedang ke atas >= md) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="text-gray-400 font-bold uppercase tracking-wider border-b border-gray-100">
@@ -440,7 +433,7 @@ export default function GuruDashboardPage() {
                         </span>
                       </td>
 
-                      {/* TOMBOL KELOLA SOAL TERIKAT (DIARAHKAN KE /guru/bank-soal) */}
+                      {/* TOMBOL KELOLA SOAL TERIKAT */}
                       <td className="py-3.5 text-center">
                         <button
                           type="button"
@@ -516,59 +509,6 @@ export default function GuruDashboardPage() {
           </>
         )}
       </div>
-
-      {/* 📱 MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 px-2 py-2 sm:hidden z-50 flex justify-around items-center shadow-lg">
-        {/* 1. Home */}
-        <button
-          type="button"
-          onClick={() => router.push('/guru')}
-          className="flex flex-col items-center gap-0.5 text-blue-600 font-bold active:scale-95 transition min-w-[50px]"
-        >
-          <span className="text-lg">🏠</span>
-          <span className="text-[10px]">Home</span>
-        </button>
-
-        {/* 2. Bank Soal */}
-        <button
-          type="button"
-          onClick={() => router.push('/guru/bank-soal')}
-          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
-        >
-          <span className="text-lg">📝</span>
-          <span className="text-[10px]">Soal</span>
-        </button>
-
-        {/* 3. Live Siswa / Pantau Ujian */}
-        <button
-          type="button"
-          onClick={() => router.push('/guru/pantau-ujian')}
-          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
-        >
-          <span className="text-lg">📡</span>
-          <span className="text-[10px]">Live Siswa</span>
-        </button>
-
-        {/* 4. Rekap Nilai */}
-        <button
-          type="button"
-          onClick={() => router.push('/guru/rekap-nilai')}
-          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 active:scale-95 transition min-w-[50px]"
-        >
-          <span className="text-lg">📊</span>
-          <span className="text-[10px]">Nilai</span>
-        </button>
-
-        {/* 5. Keluar */}
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="flex flex-col items-center gap-0.5 text-rose-500 hover:text-rose-600 active:scale-95 transition min-w-[50px]"
-        >
-          <span className="text-lg">🚪</span>
-          <span className="text-[10px]">Keluar</span>
-        </button>
-      </nav>
     </div>
   );
 }
