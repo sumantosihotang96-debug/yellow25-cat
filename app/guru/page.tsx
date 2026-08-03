@@ -24,7 +24,7 @@ export default function GuruDashboardPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [savingTokenId, setSavingTokenId] = useState<string | null>(null);
 
-  // STATE BARU: Sakelar dari Admin untuk mengontrol akses token Guru
+  // Sakelar dari Admin untuk mengontrol akses token Guru
   const [izinkanGuruToken, setIzinkanGuruToken] = useState<boolean>(true);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function GuruDashboardPage() {
           setNamaGuru(namaSimpanan || 'Guru');
           setNipGuru(nipSimpanan || '-');
 
-          // 0. BACA PENGATURAN GLOBAL ADMIN (Apakah Guru Diizinkan Atur Token?)
+          // 0. BACA PENGATURAN GLOBAL ADMIN
           const { data: configAdmin } = await supabase
             .from('pengaturan_global')
             .select('izinkan_guru_token')
@@ -101,7 +101,7 @@ export default function GuruDashboardPage() {
               });
             }
 
-            // 3. Hitung Statistik Ringkas
+            // 3. Hitung Statistik
             const tgl = new Date();
             const yyyy = tgl.getFullYear();
             const mm = String(tgl.getMonth() + 1).padStart(2, '0');
@@ -205,14 +205,16 @@ export default function GuruDashboardPage() {
 
         const { data, error } = await supabase
           .from('jadwal_ujian')
-          .insert([{
-            mapel_id: item.id,
-            token_ujian: tokenClean,
-            tanggal_ujian: hariIniLokal,
-            jam_mulai: '08:00',
-            durasi_menit: 90,
-            jumlah_soal_tampil: 40,
-          }])
+          .insert([
+            {
+              mapel_id: item.id,
+              token_ujian: tokenClean,
+              tanggal_ujian: hariIniLokal,
+              jam_mulai: '08:00',
+              durasi_menit: 90,
+              jumlah_soal_tampil: 40,
+            },
+          ])
           .select()
           .single();
 
@@ -234,6 +236,13 @@ export default function GuruDashboardPage() {
     }
   };
 
+  const handleLogout = () => {
+    if (confirm('Apakah Anda yakin ingin keluar?')) {
+      localStorage.clear();
+      router.push('/');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center text-xs font-bold text-gray-400 tracking-wider uppercase animate-pulse">
@@ -243,7 +252,7 @@ export default function GuruDashboardPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4">
+    <div className="max-w-5xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4 pb-20 sm:pb-6">
       {/* HEADER PROFIL GURU */}
       <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
@@ -265,7 +274,9 @@ export default function GuruDashboardPage() {
             📝
           </div>
           <div>
-            <span className="block text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">Total Soal</span>
+            <span className="block text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Total Soal
+            </span>
             <span className="text-base sm:text-xl font-black text-gray-900 font-mono">
               {stats.totalSoal} <span className="text-[10px] sm:text-xs font-medium text-gray-500">Soal</span>
             </span>
@@ -277,7 +288,9 @@ export default function GuruDashboardPage() {
             ⚡
           </div>
           <div>
-            <span className="block text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">Ujian Aktif</span>
+            <span className="block text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Ujian Aktif
+            </span>
             <span className="text-base sm:text-xl font-black text-emerald-600 font-mono">
               {stats.ujianAktif} <span className="text-[10px] sm:text-xs font-medium text-gray-500">Sesi</span>
             </span>
@@ -285,16 +298,14 @@ export default function GuruDashboardPage() {
         </div>
       </div>
 
-      {/* KELOLA MAPEL */}
+      {/* KELOLA MAPEL & SOAL TERIKAT */}
       <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-200 shadow-sm space-y-4">
         <div className="border-b border-gray-100 pb-3">
           <h2 className="text-xs sm:text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
-            📖 Kelola Mapel {izinkanGuruToken && '& Token Ujian'} ({mapelDiampu.length})
+            📖 Kelola Mapel & Soal Ujian ({mapelDiampu.length})
           </h2>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            {izinkanGuruToken 
-              ? 'Token yang diatur di sini tersinkronisasi otomatis dengan Rilis Jadwal milik Admin.'
-              : 'Fitur pengaturan token ujian saat ini dikelola penuh oleh Administrator.'}
+            Atur soal terikat, pengacakan soal, dan token masuk ujian secara konsisten per mata pelajaran.
           </p>
         </div>
 
@@ -323,6 +334,17 @@ export default function GuruDashboardPage() {
                     </div>
                   </div>
 
+                  {/* AKSI SOAL TERIKAT PER MAPEL */}
+                  <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-gray-600">📝 Soal Ujian:</span>
+                    <button
+                      onClick={() => router.push(`/guru/soal?mapel_id=${item.id}`)}
+                      className="px-3 py-1.5 text-xs font-bold bg-blue-600 active:bg-blue-700 text-white rounded-lg shadow-sm transition flex items-center gap-1"
+                    >
+                      Kelola Soal ➔
+                    </button>
+                  </div>
+
                   {/* SAKELAR ACAK SOAL */}
                   <div className="pt-2 border-t border-gray-200/60 flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-600">🎲 Acak Soal:</span>
@@ -341,13 +363,17 @@ export default function GuruDashboardPage() {
                           }`}
                         />
                       </button>
-                      <span className={`text-[11px] font-bold ${item.acak_soal ? 'text-indigo-600' : 'text-gray-400'}`}>
+                      <span
+                        className={`text-[11px] font-bold ${
+                          item.acak_soal ? 'text-indigo-600' : 'text-gray-400'
+                        }`}
+                      >
                         {item.acak_soal ? 'Aktif' : 'Off'}
                       </span>
                     </div>
                   </div>
 
-                  {/* PEMBUATAN TOKEN - HANYA MUNCUL JIKA IZINKAN GURU TOKEN = TRUE */}
+                  {/* PEMBUATAN TOKEN */}
                   {izinkanGuruToken && (
                     <div className="pt-2 border-t border-gray-200/60 space-y-1.5">
                       <label className="text-[11px] font-bold text-gray-600 block">🔑 Token Masuk Ujian:</label>
@@ -391,6 +417,7 @@ export default function GuruDashboardPage() {
                     <th className="pb-3 pl-2">Mata Pelajaran</th>
                     <th className="pb-3 text-center w-20">Kelas</th>
                     <th className="pb-3 text-center w-24">Jurusan</th>
+                    <th className="pb-3 text-center w-32">📝 Soal Terikat</th>
                     <th className="pb-3 text-center w-28">🎲 Acak Soal</th>
                     {izinkanGuruToken && <th className="pb-3 text-center w-64">🔑 Token Ujian</th>}
                   </tr>
@@ -413,6 +440,17 @@ export default function GuruDashboardPage() {
                         </span>
                       </td>
 
+                      {/* TOMBOL KELOLA SOAL TERIKAT */}
+                      <td className="py-3.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/guru/soal?mapel_id=${item.id}`)}
+                          className="px-2.5 py-1.5 text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg border border-blue-200 transition shadow-xs"
+                        >
+                          ⚙️ Kelola Soal
+                        </button>
+                      </td>
+
                       {/* TOGGLE ACAK SOAL */}
                       <td className="py-3.5 text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -430,13 +468,17 @@ export default function GuruDashboardPage() {
                               }`}
                             />
                           </button>
-                          <span className={`text-[10px] font-bold ${item.acak_soal ? 'text-indigo-600' : 'text-gray-400'}`}>
+                          <span
+                            className={`text-[10px] font-bold ${
+                              item.acak_soal ? 'text-indigo-600' : 'text-gray-400'
+                            }`}
+                          >
                             {item.acak_soal ? 'Aktif' : 'Off'}
                           </span>
                         </div>
                       </td>
 
-                      {/* PEMBUATAN TOKEN - HANYA MUNCUL JIKA IZINKAN GURU TOKEN = TRUE */}
+                      {/* PEMBUATAN TOKEN */}
                       {izinkanGuruToken && (
                         <td className="py-3.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
@@ -474,6 +516,41 @@ export default function GuruDashboardPage() {
           </>
         )}
       </div>
+
+      {/* 📱 MOBILE BOTTOM NAVIGATION BAR */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-2 sm:hidden z-50 flex justify-around items-center shadow-lg">
+        <button
+          onClick={() => router.push('/guru/dashboard')}
+          className="flex flex-col items-center gap-0.5 text-blue-600 font-bold"
+        >
+          <span className="text-lg">🏠</span>
+          <span className="text-[10px]">Home</span>
+        </button>
+
+        <button
+          onClick={() => router.push('/guru/soal')}
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
+        >
+          <span className="text-lg">📝</span>
+          <span className="text-[10px]">Bank Soal</span>
+        </button>
+
+        <button
+          onClick={() => router.push('/guru/rekap-nilai')}
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-blue-600 transition"
+        >
+          <span className="text-lg">📊</span>
+          <span className="text-[10px]">Nilai</span>
+        </button>
+
+        <button
+          onClick={handleLogout}
+          className="flex flex-col items-center gap-0.5 text-rose-500 hover:text-rose-600 transition"
+        >
+          <span className="text-lg">🚪</span>
+          <span className="text-[10px]">Keluar</span>
+        </button>
+      </nav>
     </div>
   );
 }
