@@ -6,7 +6,7 @@ import { supabase } from '@/utils/supabase';
 
 interface Soal {
   id: string;
-  group_id?: string | null; // 🔗 Membaca status grup/ikatan soal
+  group_id?: string | null;
   pertanyaan: string;
   gambar_soal?: string | null;
   opsi_a: string;
@@ -38,7 +38,6 @@ interface DetailJadwal {
   } | null;
 }
 
-// 🔀 Helper Pengacakan Array Biasa (Fisher-Yates)
 const acakArray = <T,>(array: T[]): T[] => {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -48,11 +47,9 @@ const acakArray = <T,>(array: T[]): T[] => {
   return arr;
 };
 
-// 🔗 Helper Pengacakan Berbasis Group ID (Runtut di Dalam Grup, Acak Antar-Grup)
 const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
   if (!daftarSoal || daftarSoal.length === 0) return [];
 
-  // 1. Kelompokkan soal berdasarkan group_id menggunakan Map
   const mapGrup = new Map<string, Soal[]>();
 
   daftarSoal.forEach((soal) => {
@@ -66,13 +63,9 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
     mapGrup.get(keyGrup)!.push(soal);
   });
 
-  // 2. Ambil seluruh paket grup sebagai array
   const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
-
-  // 3. Acak urutan ANTAR-GRUP saja
   const grupTeracak = acakArray(daftarSeluruhGrup);
 
-  // 4. Gabungkan kembali (Soal dalam grup tetap runtut & berdampingan)
   return grupTeracak.flat();
 };
 
@@ -97,7 +90,6 @@ export default function LembarUjianPage() {
   const [maxPelanggaran, setMaxPelanggaran] = useState<number>(3);
   const [hasAgreedRules, setHasAgreedRules] = useState(false);
 
-  // Status Pelanggaran
   const [pelanggaranCount, setPelanggaranCount] = useState<number>(0);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
   const [showPelanggaranPopup, setShowPelanggaranPopup] = useState(false);
@@ -107,7 +99,6 @@ export default function LembarUjianPage() {
   const isInteractingRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
-  // 🔒 MENCEGAH LAYAR HP / LAPTOP SLEEP (SCREEN WAKE LOCK API)
   const mintaLayarTetapAktif = useCallback(async () => {
     try {
       if ('wakeLock' in navigator) {
@@ -129,7 +120,6 @@ export default function LembarUjianPage() {
     }
   }, []);
 
-  // Mencegah sleep ketika tab/layar aktif kembali
   useEffect(() => {
     const handleReaktivasiLayar = () => {
       if (document.visibilityState === 'visible' && hasAgreedRules) {
@@ -144,7 +134,6 @@ export default function LembarUjianPage() {
     };
   }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
 
-  // 📈 EVALUASI SKOR AKHIR DAN SIMPAN
   const eksekusiKirimJawabanAkhir = useCallback(async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -214,7 +203,6 @@ export default function LembarUjianPage() {
     }
   }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting, lepasLayarTetapAktif]);
 
-  // 1. Validasi Sesi & Fetch Data
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined' || !idJadwal) return;
@@ -256,18 +244,24 @@ export default function LembarUjianPage() {
         setPelanggaranCount(initialPelanggaran);
         localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
 
+        // UPDATE: Penambahan Pengambilan Data Agama & Mapel Pilihan
         const { data: dataProfil } = await supabase
           .from('profiles')
-          .select('nama_lengkap, kelas')
+          .select('nama_lengkap, kelas, agama, mapel_pilihan')
           .eq('id', siswaId)
           .maybeSingle();
 
         let kelasUtuhSiswa = 'UMUM';
         let tingkatKelas = '';
         let jurusanTarget = '';
+        let agamaSiswa = '';
+        let pilihanSiswa = '';
 
         if (dataProfil) {
           setNamaSiswa(dataProfil.nama_lengkap || 'Siswa');
+          agamaSiswa = dataProfil.agama?.trim().toUpperCase() || '';
+          pilihanSiswa = dataProfil.mapel_pilihan?.trim().toUpperCase() || '';
+
           if (dataProfil.kelas) {
             kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
             localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
@@ -290,6 +284,26 @@ export default function LembarUjianPage() {
         }
 
         const jadwal = dataJadwal as unknown as DetailJadwal;
+        const namaMapel = jadwal.mapel?.nama_mapel?.toUpperCase() || '';
+
+        // 🛡️ UPDATE: VALIDASI KEAMANAN AGAMA
+        if (namaMapel.includes('AGAMA')) {
+          if (!agamaSiswa || !namaMapel.includes(agamaSiswa)) {
+            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan data agama Anda adalah ${agamaSiswa || 'Belum Diatur'}.`);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // 🛡️ UPDATE: VALIDASI KEAMANAN MAPEL PILIHAN
+        if (namaMapel.includes('SENI') || namaMapel.includes('PILIHAN') || namaMapel.includes('LINTAS MINAT')) {
+          if (!pilihanSiswa || !namaMapel.includes(pilihanSiswa)) {
+            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan mapel pilihan Anda adalah ${pilihanSiswa || 'Belum Diatur'}.`);
+            setLoading(false);
+            return;
+          }
+        }
+
         setDetailJadwal(jadwal);
 
         let querySoal = supabase
@@ -347,7 +361,6 @@ export default function LembarUjianPage() {
               finalSoalList = [...finalSoalList, ...missingSoal];
             }
           } else {
-            // 🔗 Gunakan Pengacakan Berbasis Grup (Aman & Terisolasi)
             const randomizedGrup = acakSoalGrup(dataSoal);
             const limitedRandom = randomizedGrup.slice(0, jadwal.jumlah_soal_tampil);
             const orderIds = limitedRandom.map((s) => s.id);
@@ -387,7 +400,6 @@ export default function LembarUjianPage() {
     }, 500);
   };
 
-  // 2. Timer Hitung Mundur
   useEffect(() => {
     if (!detailJadwal || !hasAgreedRules) return;
 
@@ -429,7 +441,6 @@ export default function LembarUjianPage() {
     }
   };
 
-  // 3. Anti-Cheat Guard
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -559,7 +570,6 @@ export default function LembarUjianPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       
-      {/* POP-UP ATURAN UJIAN */}
       {!hasAgreedRules && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
@@ -598,7 +608,6 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* INDIKATOR PELANGGARAN */}
       {pelanggaranCount > 0 && (
         <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-xl font-bold flex justify-between items-center shadow-sm">
           <span>⚠️ Terdeteksi keluar dari fokus area lembar pengerjaan!</span>
@@ -607,7 +616,6 @@ export default function LembarUjianPage() {
       )}
 
       <div className="max-w-5xl mx-auto space-y-4">
-        {/* Header Informasi */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center text-xs">
           <div>
             <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
@@ -620,7 +628,6 @@ export default function LembarUjianPage() {
           </div>
         </div>
 
-        {/* Kotak Soal */}
         {soalSaatIni && (
           <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
             <div className="space-y-3">
@@ -638,7 +645,6 @@ export default function LembarUjianPage() {
               )}
             </div>
 
-            {/* Opsi Jawaban */}
             <div className="grid grid-cols-1 gap-3 text-xs">
               {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
                 const textKey = `opsi_${letter.toLowerCase()}` as keyof Soal;
@@ -679,7 +685,6 @@ export default function LembarUjianPage() {
               })}
             </div>
 
-            {/* Navigasi Soal */}
             <div className="flex justify-between items-center pt-4 border-t border-slate-100">
               <button
                 disabled={nomorAktif === 0}
@@ -710,7 +715,6 @@ export default function LembarUjianPage() {
         )}
       </div>
 
-      {/* Floating Navigasi Nomor Soal */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
         {isNavOpen && (
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
@@ -739,7 +743,6 @@ export default function LembarUjianPage() {
         </button>
       </div>
 
-      {/* MODAL: KONFIRMASI SUBMIT */}
       {showConfirmSubmit && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-md w-full space-y-5 shadow-2xl text-center">
@@ -794,7 +797,6 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* MODAL CONSOLIDATED: PELANGGARAN FOKUS / FULLSCREEN */}
       {showPelanggaranPopup && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">

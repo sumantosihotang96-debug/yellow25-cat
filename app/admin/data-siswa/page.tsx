@@ -12,6 +12,8 @@ interface Siswa {
   email: string;
   password?: string;
   created_at?: string;
+  agama?: string;
+  mapel_pilihan?: string;
 }
 
 export default function DataSiswaPage() {
@@ -29,6 +31,8 @@ export default function DataSiswaPage() {
   const [nomorKelas, setNomorKelas] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [agama, setAgama] = useState('');
+  const [mapelPilihan, setMapelPilihan] = useState('');
 
   // State untuk melacak data yang sedang diedit
   const [editId, setEditId] = useState<string | null>(null);
@@ -60,12 +64,12 @@ export default function DataSiswaPage() {
     setHalamanAktif(1);
   }, [barisTampil]);
 
-  // Ambil Data Pengguna Termasuk Kolom 'password'
+  // Ambil Data Pengguna Termasuk Kolom Baru
   const fetchSiswa = async () => {
     setFetching(true);
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, nama_lengkap, nomor_induk, kelas, email, password, created_at')
+      .select('id, nama_lengkap, nomor_induk, kelas, email, password, created_at, agama, mapel_pilihan')
       .eq('role', 'siswa')
       .order('kelas', { ascending: true })
       .order('nama_lengkap', { ascending: true });
@@ -106,7 +110,7 @@ export default function DataSiswaPage() {
     fetchOpsiRombelDariMapel();
   }, []);
 
-  // Unduh Template Excel
+  // Unduh Template Excel (Ditambah Agama & Mapel Pilihan)
   const handleUnduhTemplate = () => {
     const strukturTemplate = [
       {
@@ -115,6 +119,8 @@ export default function DataSiswaPage() {
         kelas: 'X TKJ 1',
         email: 'budi@siswa.sch.id',
         password: '123',
+        agama: 'Islam',
+        mapel_pilihan: 'Sosiologi',
       },
       {
         nama: 'Siti Aminah',
@@ -122,6 +128,8 @@ export default function DataSiswaPage() {
         kelas: 'XI RPL 2',
         email: 'siti@siswa.sch.id',
         password: 'passwordku123',
+        agama: 'Kristen',
+        mapel_pilihan: 'Geografi',
       },
     ];
 
@@ -135,7 +143,7 @@ export default function DataSiswaPage() {
   const handleSimpanForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!namaLengkap || !nisn || !tingkatKelas || !jurusan || !nomorKelas || !email || !password) {
-      setNotifikasi({ pesan: '⚠️ Mohon lengkapi seluruh field data termasuk kata sandi.', tipe: 'gagal' });
+      setNotifikasi({ pesan: '⚠️ Mohon lengkapi seluruh field wajib data termasuk kata sandi.', tipe: 'gagal' });
       return;
     }
     setLoading(true);
@@ -150,6 +158,8 @@ export default function DataSiswaPage() {
           kelas: kelasGabungan,
           email: email,
           password: password,
+          agama: agama || null,
+          mapel_pilihan: mapelPilihan || null,
         };
 
         const { error: updateError } = await supabase
@@ -170,6 +180,8 @@ export default function DataSiswaPage() {
               kelas: kelasGabungan,
               email: email,
               password: password,
+              agama: agama || null,
+              mapel_pilihan: mapelPilihan || null,
               role: 'siswa',
             },
           ]);
@@ -195,6 +207,8 @@ export default function DataSiswaPage() {
     setNisn(siswa.nomor_induk);
     setEmail(siswa.email);
     setPassword(siswa.password || '');
+    setAgama(siswa.agama || '');
+    setMapelPilihan(siswa.mapel_pilihan || '');
 
     const bagianKelas = siswa.kelas.split(' ');
     if (bagianKelas.length === 3) {
@@ -268,9 +282,11 @@ export default function DataSiswaPage() {
     setNomorKelas('');
     setEmail('');
     setPassword('');
+    setAgama('');
+    setMapelPilihan('');
   };
 
-  // Import dari Excel
+  // Import dari Excel (Ditambah proses Agama & Mapel Pilihan)
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -307,6 +323,9 @@ export default function DataSiswaPage() {
           const kelasSiswa = barisNormal['kelas'];
           const emailSiswa = barisNormal['email'];
           const passSiswa = barisNormal['password'];
+          // Ambil agama & mapel pilihan (bisa null/kosong)
+          const agamaSiswa = barisNormal['agama'] || '';
+          const mapelPilihanSiswa = barisNormal['mapel_pilihan'] || barisNormal['mapel pilihan'] || '';
 
           if (!namaSiswa || !nisnSiswa || !kelasSiswa || !emailSiswa || !passSiswa) {
             gagalCount++;
@@ -320,6 +339,8 @@ export default function DataSiswaPage() {
             kelas: String(kelasSiswa).trim().toUpperCase(),
             email: String(emailSiswa).trim(),
             password: String(passSiswa).trim(),
+            agama: agamaSiswa ? String(agamaSiswa).trim() : null,
+            mapel_pilihan: mapelPilihanSiswa ? String(mapelPilihanSiswa).trim() : null,
             role: 'siswa',
           });
         }
@@ -473,6 +494,35 @@ export default function DataSiswaPage() {
                 />
               </div>
             </div>
+            
+            {/* Field Tambahan: Agama & Mapel Pilihan */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Agama (Opsional)</label>
+              <select
+                value={agama}
+                onChange={(e) => setAgama(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+              >
+                <option value="">Pilih Agama...</option>
+                <option value="Islam">Islam</option>
+                <option value="Kristen">Kristen</option>
+                <option value="Katolik">Katolik</option>
+                <option value="Hindu">Hindu</option>
+                <option value="Buddha">Buddha</option>
+                <option value="Konghucu">Konghucu</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Mapel Pilihan (Opsional)</label>
+              <input
+                type="text"
+                value={mapelPilihan}
+                onChange={(e) => setMapelPilihan(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium"
+                placeholder="Contoh: Sosiologi, Fisika"
+              />
+            </div>
 
             <div className="md:col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">Email Siswa</label>
@@ -548,7 +598,7 @@ export default function DataSiswaPage() {
             <p className="text-xs text-gray-500 mt-2 leading-relaxed">
               Daftarkan ratusan siswa dalam hitungan detik. Pastikan file Excel Anda menggunakan header kolom persis berikut:{' '}
               <br />
-              <strong className="text-gray-700 font-mono text-[11px]">nama | nisn | kelas | email | password</strong>
+              <strong className="text-gray-700 font-mono text-[11px]">nama | nisn | kelas | email | password | agama | mapel_pilihan</strong>
             </p>
           </div>
 
@@ -610,27 +660,28 @@ export default function DataSiswaPage() {
 
         {/* Responsive Table Wrapper */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[640px]">
+          <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-gray-600 text-xs sm:text-sm font-semibold">
                 <th className="p-3 sm:p-4 w-12 text-center">No.</th>
                 <th className="p-3 sm:p-4 w-28">Kelas</th>
                 <th className="p-3 sm:p-4">Nama Lengkap</th>
-                <th className="p-3 sm:p-4 w-32">NISN</th>
-                <th className="p-3 sm:p-4">Email Akun</th>
+                <th className="p-3 sm:p-4 w-28">NISN</th>
+                <th className="p-3 sm:p-4 hidden md:table-cell">Agama</th>
+                <th className="p-3 sm:p-4 hidden md:table-cell">Mapel Pilihan</th>
                 <th className="p-3 sm:p-4 w-36 text-center">Tindakan Admin</th>
               </tr>
             </thead>
             <tbody className="text-gray-950 text-xs sm:text-sm divide-y divide-gray-50">
               {fetching ? (
                 <tr>
-                  <td colSpan={6} className="text-center p-8 text-gray-400">
+                  <td colSpan={7} className="text-center p-8 text-gray-400">
                     Sedang memuat data peserta...
                   </td>
                 </tr>
               ) : listSiswa.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center p-8 text-gray-400">
+                  <td colSpan={7} className="text-center p-8 text-gray-400">
                     Belum ada data siswa. Gunakan form di atas untuk menambahkan.
                   </td>
                 </tr>
@@ -648,9 +699,13 @@ export default function DataSiswaPage() {
                         {siswa.kelas}
                       </span>
                     </td>
-                    <td className="p-3 sm:p-4 font-semibold text-gray-900">{siswa.nama_lengkap}</td>
+                    <td className="p-3 sm:p-4 font-semibold text-gray-900">
+                      <div>{siswa.nama_lengkap}</div>
+                      <div className="text-[10px] text-gray-400 md:hidden">{siswa.agama || '-'} | {siswa.mapel_pilihan || '-'}</div>
+                    </td>
                     <td className="p-3 sm:p-4 font-mono text-gray-700">{siswa.nomor_induk}</td>
-                    <td className="p-3 sm:p-4 text-gray-500 truncate max-w-[180px] sm:max-w-none">{siswa.email}</td>
+                    <td className="p-3 sm:p-4 text-gray-500 hidden md:table-cell">{siswa.agama || '-'}</td>
+                    <td className="p-3 sm:p-4 text-gray-500 hidden md:table-cell">{siswa.mapel_pilihan || '-'}</td>
                     <td className="p-3 sm:p-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
