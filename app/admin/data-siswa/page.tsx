@@ -665,10 +665,10 @@ export default function DataSiswaPage() {
               <tr className="bg-gray-50 border-b border-gray-100 text-gray-600 text-xs sm:text-sm font-semibold">
                 <th className="p-3 sm:p-4 w-12 text-center">No.</th>
                 <th className="p-3 sm:p-4 w-28">Kelas</th>
-                <th className="p-3 sm:p-4">Nama Lengkap</th>
+                <th className="p-3 sm:p-4 whitespace-nowrap">Nama Lengkap</th>
                 <th className="p-3 sm:p-4 w-28">NISN</th>
-                <th className="p-3 sm:p-4 hidden md:table-cell">Agama</th>
-                <th className="p-3 sm:p-4 hidden md:table-cell">Mapel Pilihan</th>
+                <th className="p-3 sm:p-4 whitespace-nowrap">Agama</th>
+                <th className="p-3 sm:p-4 whitespace-nowrap">Mapel Pilihan</th>
                 <th className="p-3 sm:p-4 w-36 text-center">Tindakan Admin</th>
               </tr>
             </thead>
@@ -699,13 +699,12 @@ export default function DataSiswaPage() {
                         {siswa.kelas}
                       </span>
                     </td>
-                    <td className="p-3 sm:p-4 font-semibold text-gray-900">
-                      <div>{siswa.nama_lengkap}</div>
-                      <div className="text-[10px] text-gray-400 md:hidden">{siswa.agama || '-'} | {siswa.mapel_pilihan || '-'}</div>
+                    <td className="p-3 sm:p-4 font-semibold text-gray-900 whitespace-nowrap">
+                      {siswa.nama_lengkap}
                     </td>
                     <td className="p-3 sm:p-4 font-mono text-gray-700">{siswa.nomor_induk}</td>
-                    <td className="p-3 sm:p-4 text-gray-500 hidden md:table-cell">{siswa.agama || '-'}</td>
-                    <td className="p-3 sm:p-4 text-gray-500 hidden md:table-cell">{siswa.mapel_pilihan || '-'}</td>
+                    <td className="p-3 sm:p-4 text-gray-500 whitespace-nowrap">{siswa.agama || '-'}</td>
+                    <td className="p-3 sm:p-4 text-gray-500 whitespace-nowrap">{siswa.mapel_pilihan || '-'}</td>
                     <td className="p-3 sm:p-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <button
