@@ -212,7 +212,7 @@ export default function DashboardSiswaPage() {
     }
   }, [router]);
 
-  // Fungsi gabungan memuat Jadwal sekaligus status pengerjaan siswa
+  // Fungsi gabungan memuat Jadwal sekaligus status pengerjaan siswa (DISESUAIKAN)
   const fetchDataDashboardLengkap = async (siswaId: string, kelasLengkapSiswa: string, jurusanSiswa: string) => {
     setFetchingUjian(true);
     try {
@@ -244,22 +244,29 @@ export default function DashboardSiswaPage() {
         const hasilFilter = (dataJadwal as unknown as JadwalSiswa[]).filter((jadwal) => {
           if (!jadwal.mapel) return false;
 
-          // Standardisasi nilai dari Database
+          // 🧹 Standardisasi data dari Database (Uppercased & trimmed)
           const kelasMapelDb = (jadwal.mapel.kelas || '').trim().toUpperCase();
           const jurusanMapelDb = (jadwal.mapel.jurusan || '').trim().toUpperCase();
 
-          // Standardisasi data dari Perangkat/Siswa
+          // 🧹 Standardisasi data dari Perangkat/Siswa
           const kelasSiswaClean = kelasLengkapSiswa.trim().toUpperCase(); // Contoh: "X TKJ 1"
-          const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();     // Contoh: "TKJ"
+          const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();    // Contoh: "TKJ"
+          
+          // 🎯 Ekstrak Tingkat Saja (Ambil kata pertama dari "X TKJ 1" -> Hasilnya "X")
+          const tingkatSiswaClean = kelasSiswaClean.split(' ')[0] || '';
 
-          const cocokKelas = !kelasMapelDb || 
-                             kelasSiswaClean === kelasMapelDb || 
-                             kelasSiswaClean.startsWith(kelasMapelDb + ' ');
+          // 🚀 LOGIKA FILTER KELAS
+          const cocokKelas = 
+            kelasMapelDb === '' ||                // Jika dikosongkan (semua kelas)
+            kelasMapelDb === 'SEMUA' ||           // Jika ditulis SEMUA
+            kelasMapelDb === kelasSiswaClean ||   // Spesifik: "X TKJ 1" == "X TKJ 1"
+            kelasMapelDb === tingkatSiswaClean;   // Angkatan: "X" == "X"
 
-          const cocokJurusan = !jurusanMapelDb || 
-                               jurusanMapelDb === 'UMUM' || 
-                               jurusanSiswaClean === jurusanMapelDb ||
-                               kelasSiswaClean.includes(jurusanMapelDb);
+          // 🚀 LOGIKA FILTER JURUSAN
+          const cocokJurusan = 
+            jurusanMapelDb === '' ||              // Jika dikosongkan (semua jurusan)
+            jurusanMapelDb === 'UMUM' ||          // Jika soal umum
+            jurusanMapelDb === jurusanSiswaClean; // Spesifik jurusan: "TKJ" == "TKJ"
 
           return cocokKelas && cocokJurusan;
         });
