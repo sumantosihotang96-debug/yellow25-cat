@@ -244,7 +244,7 @@ export default function LembarUjianPage() {
         setPelanggaranCount(initialPelanggaran);
         localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
 
-        // UPDATE: Penambahan Pengambilan Data Agama & Mapel Pilihan
+        // UPDATE: Pengambilan Data Profil
         const { data: dataProfil } = await supabase
           .from('profiles')
           .select('nama_lengkap, kelas, agama, mapel_pilihan')
@@ -259,6 +259,7 @@ export default function LembarUjianPage() {
 
         if (dataProfil) {
           setNamaSiswa(dataProfil.nama_lengkap || 'Siswa');
+          // Memastikan semua string di-upper case untuk kemudahan matching (Case Insensitive)
           agamaSiswa = dataProfil.agama?.trim().toUpperCase() || '';
           pilihanSiswa = dataProfil.mapel_pilihan?.trim().toUpperCase() || '';
 
@@ -284,18 +285,28 @@ export default function LembarUjianPage() {
         }
 
         const jadwal = dataJadwal as unknown as DetailJadwal;
-        const namaMapel = jadwal.mapel?.nama_mapel?.toUpperCase() || '';
+        
+        // Memastikan nama mapel & kelas dari jadwal juga upper case
+        const namaMapel = jadwal.mapel?.nama_mapel?.trim().toUpperCase() || '';
+        const kelasJadwal = jadwal.mapel?.kelas?.trim().toUpperCase() || 'UMUM';
 
-        // 🛡️ UPDATE: VALIDASI KEAMANAN AGAMA
+        // 🛡️ PERBAIKAN 1: VALIDASI TINGKAT KELAS (Mencegah Kelas Berbeda Masuk)
+        if (kelasJadwal !== 'UMUM' && tingkatKelas && kelasJadwal !== tingkatKelas) {
+            setErrorMsg(`🚫 Akses ditolak. Jadwal ujian ini ditujukan untuk kelas ${kelasJadwal}, sedangkan Anda terdaftar di kelas ${tingkatKelas}.`);
+            setLoading(false);
+            return;
+        }
+
+        // 🛡️ PERBAIKAN 2: VALIDASI KEAMANAN AGAMA (Case-Insensitive)
         if (namaMapel.includes('AGAMA')) {
           if (!agamaSiswa || !namaMapel.includes(agamaSiswa)) {
-            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan data agama Anda adalah ${agamaSiswa || 'Belum Diatur'}.`);
+            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk mapel ${namaMapel}, sedangkan data agama Anda tercatat sebagai ${agamaSiswa || 'Belum Diatur'}.`);
             setLoading(false);
             return;
           }
         }
 
-        // 🛡️ UPDATE: VALIDASI KEAMANAN MAPEL PILIHAN
+        // 🛡️ PERBAIKAN 3: VALIDASI KEAMANAN MAPEL PILIHAN (Case-Insensitive)
         if (namaMapel.includes('SENI') || namaMapel.includes('PILIHAN') || namaMapel.includes('LINTAS MINAT')) {
           if (!pilihanSiswa || !namaMapel.includes(pilihanSiswa)) {
             setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan mapel pilihan Anda adalah ${pilihanSiswa || 'Belum Diatur'}.`);
