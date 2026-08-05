@@ -50,14 +50,16 @@ const acakArray = <T,>(array: T[]): T[] => {
   return arr;
 };
 
+// LOGIKA PENGACAKAN GRUP TERPERBAIKI: SOAL TERIKAT BERURUTAN DAN TIDAK TERPISAH
 const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
   if (!daftarSoal || daftarSoal.length === 0) return [];
 
   const mapGrup = new Map<string, Soal[]>();
 
+  // 1. Kelompokkan soal berdasarkan group_id
   daftarSoal.forEach((soal) => {
     const keyGrup = soal.group_id && soal.group_id.trim() !== '' 
-      ? `GROUP_${soal.group_id}` 
+      ? `GROUP_${soal.group_id.trim()}` 
       : `SOLO_${soal.id}`;
 
     if (!mapGrup.has(keyGrup)) {
@@ -66,8 +68,23 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
     mapGrup.get(keyGrup)!.push(soal);
   });
 
+  // 2. Pastikan urutan soal di DALAM setiap grup terikat tetap berurutan (berdasarkan created_at atau id)
+  mapGrup.forEach((listSoalInGroup, key) => {
+    if (key.startsWith('GROUP_')) {
+      listSoalInGroup.sort((a, b) => {
+        if (a.created_at && b.created_at) {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }
+        return a.id.localeCompare(b.id);
+      });
+    }
+  });
+
+  // 3. Acak urutan antar-blok grup
   const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
   const grupTeracak = acakArray(daftarSeluruhGrup);
+
+  // 4. Ratakan kembali menjadi 1 list soal yang utuh
   return grupTeracak.flat();
 };
 
@@ -416,7 +433,13 @@ export default function LembarUjianPage() {
             finalSoalList = limitedRandom;
           }
         } else {
-          finalSoalList = [...filteredSoalList].sort((a, b) => a.id.localeCompare(b.id));
+          // Tanpa acak soal: urutkan berurutan
+          finalSoalList = [...filteredSoalList].sort((a, b) => {
+            if (a.created_at && b.created_at) {
+              return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+            }
+            return a.id.localeCompare(b.id);
+          });
         }
 
         setListSoalUjian(finalSoalList.slice(0, jadwal.jumlah_soal_tampil));

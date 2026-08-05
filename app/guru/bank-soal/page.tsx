@@ -182,9 +182,9 @@ export default function BankSoalLengkapPage() {
     if (m) setNamaMapelAktif(m.nama_mapel);
   };
 
-  // FUNGSI KOMPRESI & UPLOAD GAMBAR
-  const kompresGambar = (file: File, maxKB = 70): Promise<File> => {
-    return new Promise((resolve) => {
+  // FUNGSI KOMPRESI GAMBAR & KONVERSI KE BASE64 (DAPAT DISIMPAN LANGSUNG DI TABEL DB)
+  const kompresDanKonversiBase64 = (file: File, maxKB = 70): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = (event) => {
@@ -217,31 +217,12 @@ export default function BankSoalLengkapPage() {
             dataUrl = canvas.toDataURL('image/jpeg', quality);
           }
 
-          fetch(dataUrl)
-            .then((res) => res.blob())
-            .then((blob) => {
-              const fileKompres = new File([blob], file.name.replace(/\.[^/.]+$/, '') + '.jpg', {
-                type: 'image/jpeg',
-              });
-              resolve(fileKompres);
-            });
+          resolve(dataUrl);
         };
+        img.onerror = (err) => reject(err);
       };
+      reader.onerror = (err) => reject(err);
     });
-  };
-
-  const uploadKeStorage = async (file: File, folder: string): Promise<string | null> => {
-    try {
-      const fileKompres = await kompresGambar(file, 70);
-      const namaFile = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-      const { error } = await supabase.storage.from('gambar_soal').upload(namaFile, fileKompres);
-      if (error) throw error;
-      const { data } = supabase.storage.from('gambar_soal').getPublicUrl(namaFile);
-      return data.publicUrl;
-    } catch (err: any) {
-      console.error('Gagal upload gambar:', err.message);
-      return null;
-    }
   };
 
   const handleFileChange = (
@@ -289,18 +270,26 @@ export default function BankSoalLengkapPage() {
     setTampilkanFormManual(true);
   };
 
+  // SIMPAN SOAL LANGSUNG KE TABEL DATABASE SOAL (TANPA BUCKET / STORAGE)
   const handleSimpanSoal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mapelTerpilih) return picuNotifikasi('Pilih mata pelajaran terlebih dahulu.', 'gagal');
     setLoading(true);
 
     try {
-      const urlGambarSoal = gambarSoal ? await uploadKeStorage(gambarSoal, 'soal') : previewSoal || null;
-      const urlGambarA = gambarA ? await uploadKeStorage(gambarA, 'opsi') : previewA || null;
-      const urlGambarB = gambarB ? await uploadKeStorage(gambarB, 'opsi') : previewB || null;
-      const urlGambarC = gambarC ? await uploadKeStorage(gambarC, 'opsi') : previewC || null;
-      const urlGambarD = gambarD ? await uploadKeStorage(gambarD, 'opsi') : previewD || null;
-      const urlGambarE = gambarE ? await uploadKeStorage(gambarE, 'opsi') : previewE || null;
+      const dapatkanDataGambar = async (file: File | null, preview: string) => {
+        if (file) {
+          return await kompresDanKonversiBase64(file, 70);
+        }
+        return preview || null;
+      };
+
+      const urlGambarSoal = await dapatkanDataGambar(gambarSoal, previewSoal);
+      const urlGambarA = await dapatkanDataGambar(gambarA, previewA);
+      const urlGambarB = await dapatkanDataGambar(gambarB, previewB);
+      const urlGambarC = await dapatkanDataGambar(gambarC, previewC);
+      const urlGambarD = await dapatkanDataGambar(gambarD, previewD);
+      const urlGambarE = await dapatkanDataGambar(gambarE, previewE);
 
       const payload = {
         id_mapel: mapelTerpilih,
@@ -622,7 +611,7 @@ export default function BankSoalLengkapPage() {
               </div>
               {previewSoal && <div className="p-2 border rounded-xl flex justify-center bg-gray-50 relative">
                 <img src={previewSoal} className="h-48 object-contain" alt="Preview Soal" />
-                <button type="button" onClick={() => setPreviewSoal('')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-md text-[10px] font-bold">Hapus Gambar</button>
+                <button type="button" onClick={() => { setGambarSoal(null); setPreviewSoal(''); }} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-md text-[10px] font-bold">Hapus Gambar</button>
               </div>}
             </div>
 
@@ -636,7 +625,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN A</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarA, setPreviewA)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiA} onChange={(e) => setOpsiA(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewA && <div className="relative inline-block mt-2"><img src={previewA} className="h-20 object-contain rounded border bg-white" alt="Opsi A" /><button type="button" onClick={() => setPreviewA('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewA && <div className="relative inline-block mt-2"><img src={previewA} className="h-20 object-contain rounded border bg-white" alt="Opsi A" /><button type="button" onClick={() => { setGambarA(null); setPreviewA(''); }} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi B */}
@@ -645,7 +634,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN B</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarB, setPreviewB)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiB} onChange={(e) => setOpsiB(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewB && <div className="relative inline-block mt-2"><img src={previewB} className="h-20 object-contain rounded border bg-white" alt="Opsi B" /><button type="button" onClick={() => setPreviewB('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewB && <div className="relative inline-block mt-2"><img src={previewB} className="h-20 object-contain rounded border bg-white" alt="Opsi B" /><button type="button" onClick={() => { setGambarB(null); setPreviewB(''); }} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi C */}
@@ -654,7 +643,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN C</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarC, setPreviewC)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiC} onChange={(e) => setOpsiC(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewC && <div className="relative inline-block mt-2"><img src={previewC} className="h-20 object-contain rounded border bg-white" alt="Opsi C" /><button type="button" onClick={() => setPreviewC('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewC && <div className="relative inline-block mt-2"><img src={previewC} className="h-20 object-contain rounded border bg-white" alt="Opsi C" /><button type="button" onClick={() => { setGambarC(null); setPreviewC(''); }} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi D */}
@@ -663,7 +652,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN D</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarD, setPreviewD)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiD} onChange={(e) => setOpsiD(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewD && <div className="relative inline-block mt-2"><img src={previewD} className="h-20 object-contain rounded border bg-white" alt="Opsi D" /><button type="button" onClick={() => setPreviewD('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewD && <div className="relative inline-block mt-2"><img src={previewD} className="h-20 object-contain rounded border bg-white" alt="Opsi D" /><button type="button" onClick={() => { setGambarD(null); setPreviewD(''); }} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
 
                 {/* Opsi E */}
@@ -672,7 +661,7 @@ export default function BankSoalLengkapPage() {
                     <div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-blue-600">OPSI JAWABAN E</span><input type="file" accept="image/*" onChange={(e) => handleFileChange(e.target.files?.[0], setGambarE, setPreviewE)} className="text-[10px] max-w-[150px]" /></div>
                     <input type="text" value={opsiE} onChange={(e) => setOpsiE(e.target.value)} className="w-full p-2.5 border rounded-lg bg-white outline-none" required />
                   </div>
-                  {previewE && <div className="relative inline-block mt-2"><img src={previewE} className="h-20 object-contain rounded border bg-white" alt="Opsi E" /><button type="button" onClick={() => setPreviewE('')} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
+                  {previewE && <div className="relative inline-block mt-2"><img src={previewE} className="h-20 object-contain rounded border bg-white" alt="Opsi E" /><button type="button" onClick={() => { setGambarE(null); setPreviewE(''); }} className="absolute -top-1 -right-1 bg-red-600 text-white rounded p-0.5 text-[8px]">X</button></div>}
                 </div>
               </div>
             </div>
