@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/utils/supabase';
 
 interface Mapel {
@@ -8,14 +8,14 @@ interface Mapel {
   kelas: string; 
   nama_mapel: string;
   jurusan: string; 
-  status_aktif: boolean;
+  status_mapel?: string | null;
 }
 
-// Interface untuk data master dropdown
 interface MasterData {
   kelas: string[];
   mapel: string[];
   jurusan: string[];
+  status: string[];
 }
 
 export default function DataMapelPage() {
@@ -23,6 +23,7 @@ export default function DataMapelPage() {
   const [kelas, setKelas] = useState(''); 
   const [namaMapel, setNamaMapel] = useState('');
   const [jurusan, setJurusan] = useState(''); 
+  const [statusMapel, setStatusMapel] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [resetLoading, setResetLoading] = useState(false);
@@ -31,19 +32,20 @@ export default function DataMapelPage() {
   const fileInputRef = useRef<HTMLInputElement>(null); 
 
   // State Data Master Dropdown
-  const [master, setMaster] = useState<MasterData>({ kelas: [], mapel: [], jurusan: [] });
+  const [master, setMaster] = useState<MasterData>({ kelas: [], mapel: [], jurusan: [], status: [] });
 
-  // State Modal Tambah Opsi Master Baru
+  // State Modal Kelola Master (Tambah/Hapus)
   const [isMasterOpen, setIsMasterOpen] = useState(false);
-  const [tipeMaster, setTipeMaster] = useState<'kelas' | 'mapel' | 'jurusan'>('kelas');
+  const [tipeMaster, setTipeMaster] = useState<'kelas' | 'mapel' | 'jurusan' | 'status'>('kelas');
   const [inputMasterBaru, setInputMasterBaru] = useState('');
 
-  // State Modal Edit Mapel
+  // State Modal Edit
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editId, setEditId] = useState('');
   const [editKelas, setEditKelas] = useState(''); 
   const [editNama, setEditNama] = useState('');
   const [editJurusan, setEditJurusan] = useState(''); 
+  const [editStatusMapel, setEditStatusMapel] = useState('');
 
   const [notifikasi, setNotifikasi] = useState<{ pesan: string; tipe: 'sukses' | 'gagal' } | null>(null);
 
@@ -54,22 +56,23 @@ export default function DataMapelPage() {
     }
   }, [notifikasi]);
 
-  // Fetch seluruh data opsi dropdown dari tabel master
-  const fetchMasterData = async () => {
-    const [resKelas, resMapel, resJurusan] = await Promise.all([
+  const fetchMasterData = useCallback(async () => {
+    const [resKelas, resMapel, resJurusan, resStatus] = await Promise.all([
       supabase.from('master_kelas').select('nama_kelas').order('nama_kelas', { ascending: true }),
       supabase.from('master_nama_mapel').select('nama_mapel').order('nama_mapel', { ascending: true }),
-      supabase.from('master_jurusan').select('nama_jurusan').order('nama_jurusan', { ascending: true })
+      supabase.from('master_jurusan').select('nama_jurusan').order('nama_jurusan', { ascending: true }),
+      supabase.from('master_status_mapel').select('nama_status').order('nama_status', { ascending: true })
     ]);
 
     setMaster({
       kelas: resKelas.data?.map(d => d.nama_kelas) || [],
       mapel: resMapel.data?.map(d => d.nama_mapel) || [],
-      jurusan: resJurusan.data?.map(d => d.nama_jurusan) || []
+      jurusan: resJurusan.data?.map(d => d.nama_jurusan) || [],
+      status: resStatus.data?.map(d => d.nama_status) || []
     });
-  };
+  }, []);
 
-  const fetchMapel = async () => {
+  const fetchMapel = useCallback(async () => {
     setFetching(true);
     const { data, error } = await supabase
       .from('mapel')
@@ -78,16 +81,18 @@ export default function DataMapelPage() {
     
     if (!error && data) {
       setListMapel(data as Mapel[]);
+    } else if (error) {
+      console.error("Fetch Mapel Error:", error.message || error);
     }
     setFetching(false);
-  };
+  }, []);
 
   useEffect(() => {
     fetchMapel();
     fetchMasterData();
-  }, []);
+  }, [fetchMapel, fetchMasterData]);
 
-  // Handler Tambah Opsi Master Baru (Kelas / Mapel / Jurusan) via UI Modal
+  // --- FUNGSI TAMBAH DATA MASTER ---
   const handleTambahMasterBaru = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMasterBaru.trim()) return;
@@ -97,71 +102,114 @@ export default function DataMapelPage() {
     let kolomTarget = '';
     const nilaiInput = inputMasterBaru.trim();
 
-    if (tipeMaster === 'kelas') { tabelTarget = 'master_kelas'; kolomTarget = 'nama_kelas'; }
-    else if (tipeMaster === 'mapel') { tabelTarget = 'master_nama_mapel'; kolomTarget = 'nama_mapel'; }
-    else { tabelTarget = 'master_jurusan'; kolomTarget = 'nama_jurusan'; }
+    if (tipeMaster === 'kelas') { 
+      tabelTarget = 'master_kelas'; 
+      kolomTarget = 'nama_kelas'; 
+    } else if (tipeMaster === 'mapel') { 
+      tabelTarget = 'master_nama_mapel'; 
+      kolomTarget = 'nama_mapel'; 
+    } else if (tipeMaster === 'jurusan') { 
+      tabelTarget = 'master_jurusan'; 
+      kolomTarget = 'nama_jurusan'; 
+    } else if (tipeMaster === 'status') { 
+      tabelTarget = 'master_status_mapel'; 
+      kolomTarget = 'nama_status'; 
+    }
 
-    // Format Kapitalisasi otomatis kecuali untuk nama mapel
     const nilaiFinal = tipeMaster === 'mapel' ? nilaiInput : nilaiInput.toUpperCase();
 
     const { error } = await supabase
       .from(tabelTarget)
-      .insert([{ [kolomTarget]: nilaiFinal }]);
+      .insert([{ [kolomTarget]: nilaiFinal }])
+      .select();
 
     if (!error) {
       await fetchMasterData();
       setInputMasterBaru('');
-      setIsMasterOpen(false);
       setNotifikasi({ pesan: `🎉 Opsi ${tipeMaster} baru berhasil ditambahkan!`, tipe: 'sukses' });
     } else {
-      setNotifikasi({ pesan: '❌ Gagal: Data sudah ada atau gangguan jaringan.', tipe: 'gagal' });
+      console.error("Tambah Master Error Message:", error.message);
+      console.error("Tambah Master Error Details:", error.details);
+      console.error("Tambah Master Error Hint:", error.hint);
+      setNotifikasi({ pesan: `❌ Gagal: ${error.message || 'Data mungkin sudah ada/tabel belum dibuat.'}`, tipe: 'gagal' });
     }
     setLoading(false);
   };
 
+  // --- FUNGSI HAPUS DATA MASTER ---
+  const handleHapusMaster = async (namaItem: string) => {
+    const konfirmasi = confirm(`⚠️ Hapus opsi "${namaItem}" dari daftar ${tipeMaster}?`);
+    if (!konfirmasi) return;
+
+    let tabelTarget = '';
+    let kolomTarget = '';
+
+    if (tipeMaster === 'kelas') { 
+      tabelTarget = 'master_kelas'; 
+      kolomTarget = 'nama_kelas'; 
+    } else if (tipeMaster === 'mapel') { 
+      tabelTarget = 'master_nama_mapel'; 
+      kolomTarget = 'nama_mapel'; 
+    } else if (tipeMaster === 'jurusan') { 
+      tabelTarget = 'master_jurusan'; 
+      kolomTarget = 'nama_jurusan'; 
+    } else if (tipeMaster === 'status') { 
+      tabelTarget = 'master_status_mapel'; 
+      kolomTarget = 'nama_status'; 
+    }
+
+    const { error } = await supabase
+      .from(tabelTarget)
+      .delete()
+      .eq(kolomTarget, namaItem);
+
+    if (!error) {
+      await fetchMasterData();
+      setNotifikasi({ pesan: `🗑️ Opsi ${namaItem} berhasil dihapus.`, tipe: 'sukses' });
+    } else {
+      console.error("Hapus Master Error Message:", error.message);
+      setNotifikasi({ pesan: `❌ Gagal menghapus opsi: ${error.message}`, tipe: 'gagal' });
+    }
+  };
+
+  // --- FUNGSI TAMBAH MAPEL BARU ---
   const handleTambahMapel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!kelas || !namaMapel || !jurusan) return;
     setLoading(true);
 
+    const payload = { 
+      kelas: kelas.toUpperCase().trim(), 
+      nama_mapel: namaMapel.trim(), 
+      jurusan: jurusan.toUpperCase().trim(), 
+      status_mapel: statusMapel ? statusMapel.toUpperCase().trim() : null
+    };
+
     const { error } = await supabase
       .from('mapel')
-      .insert([
-        { 
-          kelas: kelas.toUpperCase().trim(), 
-          nama_mapel: namaMapel.trim(), 
-          jurusan: jurusan.toUpperCase().trim(), 
-          status_aktif: true 
-        }
-      ]);
+      .insert([payload])
+      .select();
 
     if (!error) {
       setKelas('');
       setNamaMapel('');
       setJurusan('');
+      setStatusMapel('');
       fetchMapel(); 
       setNotifikasi({ pesan: '🎉 Mata pelajaran berhasil ditambahkan!', tipe: 'sukses' });
     } else {
-      console.error("Tambah Mapel Error:", error);
-      setNotifikasi({ pesan: `❌ Gagal: ${error.message || 'Periksa koneksi DB'}`, tipe: 'gagal' });
+      // 💡 LOG ERROR DETAIL
+      console.error("Gagal Tambah Mapel - Message:", error.message);
+      console.error("Gagal Tambah Mapel - Details:", error.details);
+      console.error("Gagal Tambah Mapel - Hint:", error.hint);
+      console.error("Gagal Tambah Mapel - Code:", error.code);
+
+      setNotifikasi({ 
+        pesan: `❌ Gagal: ${error.message || 'Cek konsol browser / constraint Supabase.'}`, 
+        tipe: 'gagal' 
+      });
     }
     setLoading(false);
-  };
-
-  const handleToggleStatus = async (id: string, currentStatus: boolean) => {
-    const { error } = await supabase
-      .from('mapel')
-      .update({ status_aktif: !currentStatus })
-      .eq('id', id);
-
-    if (!error) {
-      setListMapel(listMapel.map(item => 
-        item.id === id ? { ...item, status_aktif: !currentStatus } : item
-      ));
-      setNotifikasi({ pesan: '🔄 Status visibilitas diperbarui.', tipe: 'sukses' });
-    } else {
-      setNotifikasi({ pesan: '❌ Gagal mengubah status.', tipe: 'gagal' });
-    }
   };
 
   const bukaModalEdit = (mapel: Mapel) => {
@@ -169,6 +217,7 @@ export default function DataMapelPage() {
     setEditKelas(mapel.kelas || ''); 
     setEditNama(mapel.nama_mapel);
     setEditJurusan(mapel.jurusan || ''); 
+    setEditStatusMapel(mapel.status_mapel || '');
     setIsEditOpen(true);
   };
 
@@ -182,16 +231,19 @@ export default function DataMapelPage() {
       .update({
         kelas: editKelas.toUpperCase().trim(), 
         nama_mapel: editNama.trim(), 
-        jurusan: editJurusan.toUpperCase().trim()
+        jurusan: editJurusan.toUpperCase().trim(),
+        status_mapel: editStatusMapel ? editStatusMapel.toUpperCase().trim() : null
       })
-      .eq('id', editId);
+      .eq('id', editId)
+      .select();
 
     if (!error) {
       setIsEditOpen(false);
       fetchMapel(); 
       setNotifikasi({ pesan: '🎉 Perubahan data berhasil disimpan!', tipe: 'sukses' });
     } else {
-      setNotifikasi({ pesan: '❌ Gagal memperbarui data.', tipe: 'gagal' });
+      console.error("Simpan Edit Mapel Error Message:", error.message);
+      setNotifikasi({ pesan: `❌ Gagal memperbarui data: ${error.message}`, tipe: 'gagal' });
     }
     setLoading(false);
   };
@@ -209,7 +261,8 @@ export default function DataMapelPage() {
       fetchMapel(); 
       setNotifikasi({ pesan: '🗑️ Data berhasil dihapus.', tipe: 'sukses' });
     } else {
-      setNotifikasi({ pesan: '❌ Gagal menghapus data.', tipe: 'gagal' });
+      console.error("Hapus Mapel Error Message:", error.message);
+      setNotifikasi({ pesan: `❌ Gagal menghapus data: ${error.message}`, tipe: 'gagal' });
     }
   };
 
@@ -219,26 +272,25 @@ export default function DataMapelPage() {
     if (!konfirmasi) return;
 
     setResetLoading(true);
-    const semuaId = listMapel.map(mapel => mapel.id);
 
     const { error } = await supabase
       .from('mapel')
       .delete()
-      .in('id', semuaId); 
+      .neq('id', '00000000-0000-0000-0000-000000000000'); 
 
     if (!error) {
       setListMapel([]);
       setNotifikasi({ pesan: '💥 Seluruh data mapel berhasil dikosongkan!', tipe: 'sukses' });
     } else {
-      console.error("Reset Error:", error);
-      setNotifikasi({ pesan: `❌ Gagal mereset tabel: ${error.message || 'Periksa aturan RLS DB'}`, tipe: 'gagal' });
+      console.error("Reset Mapel Error Message:", error.message);
+      setNotifikasi({ pesan: `❌ Gagal mereset tabel: ${error.message}`, tipe: 'gagal' });
     }
     setResetLoading(false);
   };
 
   const handleDownloadTemplate = () => {
-    const headers = 'kelas,nama_mapel,jurusan\n';
-    const contohData = 'X,Matematika,UMUM\nXI,Bahasa Inggris,TKJ';
+    const headers = 'kelas,nama_mapel,jurusan,status_mapel\n';
+    const contohData = 'X,Matematika,UMUM,\nXI,Pendidikan Agama Islam,TKJ,AGAMA\nXII,Bahasa Jepang,RPL,MAPEL PILIHAN';
     const csvContent = 'data:text/csv;charset=utf-8,' + encodeURIComponent(headers + contohData);
     
     const downloadAnchor = document.createElement('a');
@@ -272,9 +324,14 @@ export default function DataMapelPage() {
 
       const pemisah = lines[0].includes(';') ? ';' : ',';
       const headers = lines[0].toLowerCase().split(pemisah).map(h => h.replace(/["']/g, '').trim());
-      
-      if (!headers.includes('kelas') || !headers.includes('nama_mapel') || !headers.includes('jurusan')) {
-        setNotifikasi({ pesan: '❌ Format salah. Harus ada kolom: kelas, nama_mapel, jurusan', tipe: 'gagal' });
+
+      const idxKelas = headers.indexOf('kelas');
+      const idxNama = headers.indexOf('nama_mapel');
+      const idxJurusan = headers.indexOf('jurusan');
+      const idxStatus = headers.indexOf('status_mapel');
+
+      if (idxKelas === -1 || idxNama === -1 || idxJurusan === -1) {
+        setNotifikasi({ pesan: '❌ Header CSV tidak sesuai template.', tipe: 'gagal' });
         setImportLoading(false);
         return;
       }
@@ -282,32 +339,39 @@ export default function DataMapelPage() {
       const dataToInsert = [];
       for (let i = 1; i < lines.length; i++) {
         const columns = lines[i].split(pemisah).map(c => c.replace(/["']/g, '').trim());
-        if (columns.length >= headers.length) {
-          const valKelas = columns[headers.indexOf('kelas')];
-          const valNama = columns[headers.indexOf('nama_mapel')];
-          const valJurusan = columns[headers.indexOf('jurusan')];
+        if (columns.length >= 3) {
+          const valKelas = columns[idxKelas];
+          const valNama = columns[idxNama];
+          const valJurusan = columns[idxJurusan];
+          const rawStatus = idxStatus !== -1 && columns[idxStatus] ? columns[idxStatus].toUpperCase() : '';
 
           if (valKelas && valNama && valJurusan) {
             dataToInsert.push({
               kelas: valKelas.toUpperCase(),
               nama_mapel: valNama, 
               jurusan: valJurusan.toUpperCase(),
-              status_aktif: true
+              status_mapel: rawStatus || null
             });
           }
         }
       }
 
       if (dataToInsert.length === 0) {
+        setNotifikasi({ pesan: '❌ Tidak ada data valid yang bisa diimport.', tipe: 'gagal' });
         setImportLoading(false);
         return;
       }
 
-      const { error } = await supabase.from('mapel').insert(dataToInsert);
+      const { error } = await supabase
+        .from('mapel')
+        .insert(dataToInsert)
+        .select();
+
       if (!error) {
         fetchMapel();
         setNotifikasi({ pesan: `🎉 Berhasil mengimport ${dataToInsert.length} data!`, tipe: 'sukses' });
       } else {
+        console.error("Import CSV Error Message:", error.message);
         setNotifikasi({ pesan: `❌ Gagal: ${error.message}`, tipe: 'gagal' });
       }
       setImportLoading(false);
@@ -317,7 +381,7 @@ export default function DataMapelPage() {
     reader.readAsText(file);
   };
 
-  const bukaModalMaster = (tipe: 'kelas' | 'mapel' | 'jurusan') => {
+  const bukaModalMaster = (tipe: 'kelas' | 'mapel' | 'jurusan' | 'status') => {
     setTipeMaster(tipe);
     setInputMasterBaru('');
     setIsMasterOpen(true);
@@ -336,7 +400,7 @@ export default function DataMapelPage() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Kelola Mata Pelajaran</h1>
-          <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Kelola kurikulum, kelas, dan rumpun jurusan secara realtime.</p>
+          <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Atur kurikulum, kelas, jurusan, dan status opsional mata pelajaran.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <input type="file" ref={fileInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
@@ -346,20 +410,21 @@ export default function DataMapelPage() {
         </div>
       </div>
 
-      {/* QUICK MASTER CONTROLLER BAR */}
+      {/* QUICK MASTER BAR */}
       <div className="bg-slate-50 border border-slate-200 p-3 sm:p-4 rounded-xl flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
-        <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">⚙️ Pengaturan Opsi Master:</span>
-        <div className="grid grid-cols-1 sm:flex gap-2">
-          <button type="button" onClick={() => bukaModalMaster('kelas')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">➕ Buat Kelas Baru</button>
-          <button type="button" onClick={() => bukaModalMaster('mapel')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">➕ Buat Mapel Baru</button>
-          <button type="button" onClick={() => bukaModalMaster('jurusan')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">➕ Buat Jurusan Baru</button>
+        <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">⚙️ Pengaturan Opsi Dropdown:</span>
+        <div className="grid grid-cols-2 sm:flex gap-2">
+          <button type="button" onClick={() => bukaModalMaster('kelas')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">⚙️ Kelola Kelas</button>
+          <button type="button" onClick={() => bukaModalMaster('mapel')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">⚙️ Kelola Nama Mapel</button>
+          <button type="button" onClick={() => bukaModalMaster('jurusan')} className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg text-xs font-bold text-slate-700 shadow-xs text-center transition-all">⚙️ Kelola Jurusan</button>
+          <button type="button" onClick={() => bukaModalMaster('status')} className="px-3 py-1.5 bg-purple-50 border border-purple-200 hover:bg-purple-100 rounded-lg text-xs font-bold text-purple-700 shadow-xs text-center transition-all">⚙️ Kelola Status Khusus</button>
         </div>
       </div>
 
-      {/* CONTAINER FORM UTAMA (DROPDOWN) */}
+      {/* FORM UTAMA */}
       <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200">
         <h2 className="text-sm sm:text-base font-bold text-gray-800 mb-4">Tambah Mata Pelajaran Baru</h2>
-        <form onSubmit={handleTambahMapel} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        <form onSubmit={handleTambahMapel} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Kelas</label>
@@ -385,13 +450,21 @@ export default function DataMapelPage() {
             </select>
           </div>
 
-          <div className="md:col-span-3 flex justify-end mt-2">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Status Khusus <span className="text-gray-400 font-normal">(Opsional)</span></label>
+            <select value={statusMapel} onChange={(e) => setStatusMapel(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white text-gray-900 focus:ring-1 focus:ring-blue-500 outline-none">
+              <option value="">-- Ikuti Kelas & Jurusan --</option>
+              {master.status.map((st) => <option key={st} value={st}>{st}</option>)}
+            </select>
+          </div>
+
+          <div className="md:col-span-4 flex justify-end mt-2">
             <button type="submit" disabled={loading} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2 rounded-lg text-xs sm:text-sm disabled:opacity-50 transition-all shadow-sm">{loading ? 'Menyimpan...' : 'Tambah Mapel'}</button>
           </div>
         </form>
       </div>
 
-      {/* TABEL DATA */}
+      {/* TABEL DATA MAPEL */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[650px]">
@@ -401,7 +474,7 @@ export default function DataMapelPage() {
                 <th className="p-3 sm:p-4 text-center">Kelas</th>
                 <th className="p-3 sm:p-4">Nama Mata Pelajaran</th>
                 <th className="p-3 sm:p-4 text-center">Jurusan</th>
-                <th className="p-3 sm:p-4 text-center">Status</th>
+                <th className="p-3 sm:p-4 text-center">Status Khusus</th>
                 <th className="p-3 sm:p-4 text-center w-36">Aksi</th>
               </tr>
             </thead>
@@ -417,11 +490,17 @@ export default function DataMapelPage() {
                     <td className="p-3 sm:p-4 text-center font-bold text-blue-700">{mapel.kelas}</td>
                     <td className="p-3 sm:p-4 font-semibold">{mapel.nama_mapel}</td>
                     <td className="p-3 sm:p-4 text-center"><span className="bg-gray-100 text-gray-800 text-[11px] sm:text-xs font-bold px-2.5 py-0.5 rounded">{mapel.jurusan}</span></td>
+                    
                     <td className="p-3 sm:p-4 text-center">
-                      <button type="button" onClick={() => handleToggleStatus(mapel.id, mapel.status_aktif)} className={`px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold transition-all ${mapel.status_aktif ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>
-                        {mapel.status_aktif ? 'BUKA' : 'TUTUP'}
-                      </button>
+                      {mapel.status_mapel ? (
+                        <span className="text-[10px] sm:text-xs font-bold px-3 py-1 rounded-full bg-purple-100 text-purple-800 border border-purple-200 uppercase">
+                          {mapel.status_mapel}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs font-normal italic">- (Reguler)</span>
+                      )}
                     </td>
+
                     <td className="p-3 sm:p-4 text-center">
                       <div className="flex justify-center items-center gap-1.5">
                         <button type="button" onClick={() => bukaModalEdit(mapel)} className="text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded border border-amber-200 text-xs font-bold transition-all">✏️ Edit</button>
@@ -436,33 +515,63 @@ export default function DataMapelPage() {
         </div>
       </div>
 
-      {/* 🟢 MODAL MASTER BARU (UNTUK MEMBUAT OPSI BARU TANPA KE DATABASE MANUAL) */}
+      {/* MODAL KELOLA MASTER (TAMBAH & HAPUS) */}
       {isMasterOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl border max-w-sm w-full p-5 sm:p-6 space-y-4">
-            <h3 className="text-sm sm:text-base font-black text-gray-900 capitalize">Tambah Master {tipeMaster} Baru</h3>
-            <form onSubmit={handleTambahMasterBaru} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Nama {tipeMaster}</label>
+            
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm sm:text-base font-black text-gray-900 capitalize">Kelola {tipeMaster === 'status' ? 'Status Khusus' : tipeMaster}</h3>
+              <button onClick={() => setIsMasterOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg font-bold">✕</button>
+            </div>
+            
+            {/* Form Tambah */}
+            <form onSubmit={handleTambahMasterBaru} className="space-y-2">
+              <label className="block text-xs font-semibold text-gray-600">Tambah Opsi Baru</label>
+              <div className="flex gap-2">
                 <input 
                   type="text" 
                   value={inputMasterBaru} 
                   onChange={(e) => setInputMasterBaru(e.target.value)} 
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white text-gray-900 focus:ring-1 focus:ring-blue-500 outline-none" 
-                  placeholder={tipeMaster === 'kelas' ? 'Contoh: XII' : tipeMaster === 'jurusan' ? 'Contoh: MM' : 'Contoh: Fisika'} 
+                  placeholder={tipeMaster === 'kelas' ? 'Cth: XII' : tipeMaster === 'jurusan' ? 'Cth: MM' : tipeMaster === 'status' ? 'Cth: AGAMA / PILIHAN' : 'Cth: Fisika'} 
                   required 
                 />
-              </div>
-              <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={() => setIsMasterOpen(false)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all">Batal</button>
-                <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all">{loading ? 'Memproses...' : 'Simpan Pilihan'}</button>
+                <button type="submit" disabled={loading} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all whitespace-nowrap">
+                  {loading ? '⏳' : 'Tambah'}
+                </button>
               </div>
             </form>
+
+            {/* List Data & Hapus */}
+            <div className="mt-4 border-t pt-4">
+              <p className="text-xs font-semibold text-gray-600 mb-2">Daftar {tipeMaster === 'status' ? 'Status Khusus' : tipeMaster} Saat Ini:</p>
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {master[tipeMaster].length === 0 ? (
+                  <p className="text-xs text-gray-400 italic">Belum ada data opsi.</p>
+                ) : (
+                  master[tipeMaster].map((item) => (
+                    <div key={item} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg border border-gray-100 group">
+                      <span className="text-xs sm:text-sm font-medium text-gray-700">{item}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleHapusMaster(item)}
+                        className="text-gray-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                        title={`Hapus ${item}`}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* 🔵 MODAL EDIT DATA MAPEL (SUDAH MENJADI DROPDOWN JUGA) */}
+      {/* MODAL EDIT DATA MAPEL */}
       {isEditOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl border max-w-md w-full p-5 sm:p-6 space-y-4">
@@ -487,6 +596,14 @@ export default function DataMapelPage() {
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Jurusan / Rumpun</label>
                 <select value={editJurusan} onChange={(e) => setEditJurusan(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white text-gray-900 focus:ring-1 focus:ring-blue-500 outline-none" required>
                   {master.jurusan.map((j) => <option key={j} value={j}>{j}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Status Khusus <span className="text-gray-400 font-normal">(Opsional)</span></label>
+                <select value={editStatusMapel} onChange={(e) => setEditStatusMapel(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs sm:text-sm bg-white text-gray-900 focus:ring-1 focus:ring-blue-500 outline-none">
+                  <option value="">-- Ikuti Kelas & Jurusan --</option>
+                  {master.status.map((st) => <option key={st} value={st}>{st}</option>)}
                 </select>
               </div>
 

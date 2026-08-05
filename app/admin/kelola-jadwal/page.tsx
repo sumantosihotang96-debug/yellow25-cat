@@ -8,6 +8,7 @@ interface Mapel {
   nama_mapel: string;
   kelas: string | null;
   jurusan: string | null;
+  status_mapel?: string | null; // Disesuaikan dengan kolom SQL
 }
 
 interface Jadwal {
@@ -17,12 +18,8 @@ interface Jadwal {
   durasi_menit: number;
   token_ujian: string;
   jumlah_soal_tampil: number;
-  mapel_id: string; // Diwajibkan agar penanganan edit state tidak bermasalah
-  mapel: {
-    nama_mapel: string;
-    kelas: string | null;
-    jurusan: string | null;
-  } | null; // Dibuat nullable untuk mengamankan jika ada mapel terhapus accidental
+  mapel_id: string;
+  mapel: Mapel | null;
 }
 
 export default function KelolaJadwalPage() {
@@ -51,22 +48,23 @@ export default function KelolaJadwalPage() {
   const fetchData = async () => {
     setFetching(true);
     try {
+      // 🚀 Query mapel membawa kolom status_mapel
       const { data: mapelData, error: mapelError } = await supabase
         .from('mapel')
-        .select('id, nama_mapel, kelas, jurusan')
+        .select('id, nama_mapel, kelas, jurusan, status_mapel')
         .order('nama_mapel', { ascending: true });
         
       if (mapelError) throw mapelError;
-      if (mapelData) setListMapel(mapelData);
+      if (mapelData) setListMapel(mapelData as Mapel[]);
 
+      // 🚀 Query jadwal ujian membawa relasi mapel & status_mapel
       const { data: jadwalData, error: jadwalError } = await supabase
         .from('jadwal_ujian')
-        .select('id, tanggal_ujian, jam_mulai, durasi_menit, token_ujian, jumlah_soal_tampil, mapel_id, mapel(nama_mapel, kelas, jurusan)')
+        .select('id, tanggal_ujian, jam_mulai, durasi_menit, token_ujian, jumlah_soal_tampil, mapel_id, mapel(id, nama_mapel, kelas, jurusan, status_mapel)')
         .order('tanggal_ujian', { ascending: false });
 
       if (jadwalError) throw jadwalError;
       if (jadwalData) {
-        // PERBAIKAN: Mapping tipe data yang aman tanpa memicu crash 'unknown object'
         const formattedJadwal = (jadwalData as any[]).map((item) => ({
           id: item.id,
           tanggal_ujian: item.tanggal_ujian,
@@ -187,6 +185,16 @@ export default function KelolaJadwalPage() {
     }
   };
 
+  // Helper untuk format teks keterangan opsional
+  const formatKeteranganMapel = (m: Mapel | Jadwal['mapel']) => {
+    if (!m) return 'Mapel Terhapus';
+    let info = `${m.nama_mapel} (${m.kelas || 'Semua Kelas'} - ${m.jurusan || 'UMUM'})`;
+    if (m.status_mapel) {
+      info += ` [${m.status_mapel}]`;
+    }
+    return info;
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8 relative w-full max-w-6xl mx-auto p-3 sm:p-6">
       {/* Toast Notification */}
@@ -234,7 +242,7 @@ export default function KelolaJadwalPage() {
               ) : (
                 listMapel.map(m => (
                   <option key={m.id} value={m.id} className="text-gray-950 bg-white font-medium">
-                    {m.nama_mapel} ({m.kelas || 'Semua Kelas'} - {m.jurusan || 'UMUM'})
+                    {formatKeteranganMapel(m)}
                   </option>
                 ))
               )}
@@ -283,7 +291,6 @@ export default function KelolaJadwalPage() {
           <h3 className="text-xs sm:text-sm font-bold text-gray-700">Daftar Jadwal & Status Distribusi Soal</h3>
         </div>
 
-        {/* Pembungkus Tabel Responsif */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[700px]">
             <thead>
@@ -308,11 +315,13 @@ export default function KelolaJadwalPage() {
                     <td className="p-3 sm:p-4 text-center text-gray-500">{index + 1}</td>
                     <td className="p-3 sm:p-4">
                       <p className="font-semibold text-gray-900">
-                        {jadwal.mapel 
-                          ? `${jadwal.mapel.nama_mapel} (${jadwal.mapel.kelas || 'Semua Kelas'} - ${jadwal.mapel.jurusan || 'UMUM'})`
-                          : 'Mapel Terhapus'
-                        }
+                        {jadwal.mapel?.nama_mapel} ({jadwal.mapel?.kelas || 'Semua Kelas'} - {jadwal.mapel?.jurusan || 'UMUM'})
                       </p>
+                      {jadwal.mapel?.status_mapel && (
+                        <span className="inline-block mt-1 text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
+                          📌 {jadwal.mapel.status_mapel}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 sm:p-4">
                       <p className="font-medium text-gray-800">{jadwal.tanggal_ujian}</p>

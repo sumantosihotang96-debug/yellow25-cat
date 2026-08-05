@@ -20,6 +20,7 @@ interface Soal {
   gambar_d?: string | null;
   gambar_e?: string | null;
   jawaban_benar: string;
+  status_khusus?: string | null;
   created_at?: string;
 }
 
@@ -31,9 +32,11 @@ interface DetailJadwal {
   durasi_menit: number;
   jumlah_soal_tampil: number;
   mapel: {
+    id: string;
     nama_mapel: string;
     kelas: string | null;
     jurusan: string | null;
+    status_mapel?: string | null;
     acak_soal?: boolean;
   } | null;
 }
@@ -65,7 +68,6 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
 
   const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
   const grupTeracak = acakArray(daftarSeluruhGrup);
-
   return grupTeracak.flat();
 };
 
@@ -105,7 +107,7 @@ export default function LembarUjianPage() {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
       }
     } catch (err) {
-      console.log('Fasilitas Wake Lock tidak didukung atau ditolak oleh perangkat:', err);
+      console.log('Fasilitas Wake Lock tidak didukung atau ditolak:', err);
     }
   }, []);
 
@@ -203,6 +205,7 @@ export default function LembarUjianPage() {
     }
   }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting, lepasLayarTetapAktif]);
 
+  // 1. Inisialisasi Data & Filter Soal Berdasarkan Status Mapel vs Kelas/Jurusan
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined' || !idJadwal) return;
@@ -230,7 +233,7 @@ export default function LembarUjianPage() {
           .maybeSingle();
 
         if (sudahAdaNilai && sudahAdaNilai.nilai !== null && sudahAdaNilai.nilai !== undefined) {
-          setErrorMsg('🚫 Anda sudah menyelesaikan ujian ini dan tidak diperbolehkan masuk kembali.');
+          setErrorMsg('🚫 Anda sudah menyelesaikan ujian ini.');
           setLoading(false);
           setTimeout(() => router.replace('/siswa/dashboard'), 3000);
           return;
@@ -244,7 +247,7 @@ export default function LembarUjianPage() {
         setPelanggaranCount(initialPelanggaran);
         localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
 
-        // UPDATE: Pengambilan Data Profil
+        // Ambil data profil siswa
         const { data: dataProfil } = await supabase
           .from('profiles')
           .select('nama_lengkap, kelas, agama, mapel_pilihan')
@@ -254,18 +257,11 @@ export default function LembarUjianPage() {
         let kelasUtuhSiswa = 'UMUM';
         let tingkatKelas = '';
         let jurusanTarget = '';
-        
-        // Siapkan penampung untuk agama dan mapel pilihan
-        let agamaSiswa = '';
-        let pilihanSiswa = '';
+        const agamaSiswa = dataProfil?.agama?.trim().toLowerCase() || '';
+        const mapelPilihanSiswa = dataProfil?.mapel_pilihan?.trim().toLowerCase() || '';
 
         if (dataProfil) {
           setNamaSiswa(dataProfil.nama_lengkap || 'Siswa');
-          
-          // 💡 Mengambil isi kolom agama/pilihan murni, hilangkan spasi sisa, dan jadikan HURUF BESAR agar kebal huruf besar/kecil
-          agamaSiswa = dataProfil.agama ? dataProfil.agama.trim().toUpperCase() : '';
-          pilihanSiswa = dataProfil.mapel_pilihan ? dataProfil.mapel_pilihan.trim().toUpperCase() : '';
-
           if (dataProfil.kelas) {
             kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
             localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
@@ -276,9 +272,25 @@ export default function LembarUjianPage() {
           }
         }
 
+        // Ambil detail jadwal ujian
         const { data: dataJadwal, error: errorJadwal } = await supabase
           .from('jadwal_ujian')
-          .select('id, mapel_id, tanggal_ujian, jam_mulai, durasi_menit, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan, acak_soal)')
+          .select(`
+            id, 
+            mapel_id, 
+            tanggal_ujian, 
+            jam_mulai, 
+            durasi_menit, 
+            jumlah_soal_tampil, 
+            mapel (
+              id,
+              nama_mapel, 
+              kelas, 
+              jurusan, 
+              status_mapel,
+              acak_soal
+            )
+          `)
           .eq('id', idJadwal)
           .maybeSingle();
 
@@ -287,41 +299,15 @@ export default function LembarUjianPage() {
           return;
         }
 
-        const jadwal = dataJadwal as unknown as DetailJadwal;
-        
-        // Memastikan nama mapel & kelas dari jadwal juga HURUF BESAR
-        const namaMapel = jadwal.mapel?.nama_mapel?.trim().toUpperCase() || '';
-        const kelasJadwal = jadwal.mapel?.kelas?.trim().toUpperCase() || 'UMUM';
-
-        // 🛡️ PERBAIKAN 1: VALIDASI TINGKAT KELAS (Mencegah Kelas Berbeda Masuk)
-        if (kelasJadwal !== 'UMUM' && tingkatKelas && kelasJadwal !== tingkatKelas) {
-            setErrorMsg(`🚫 Akses ditolak. Jadwal ujian ini ditujukan untuk kelas ${kelasJadwal}, sedangkan Anda terdaftar di kelas ${tingkatKelas}.`);
-            setLoading(false);
-            return;
-        }
-
-        // 🛡️ PERBAIKAN 2: VALIDASI KEAMANAN AGAMA (Pencocokan Kata Sederhana)
-        // Jika nama mapel mengandung kata "AGAMA"
-        if (namaMapel.includes('AGAMA')) {
-          // Cek apakah string mapel tersebut memuat kata dari kolom agamaSiswa (misal: "ISLAM" atau "KRISTEN")
-          if (!agamaSiswa || !namaMapel.includes(agamaSiswa)) {
-            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan data agama Anda tercatat sebagai ${dataProfil?.agama || 'Belum Diatur'}.`);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // 🛡️ PERBAIKAN 3: VALIDASI KEAMANAN MAPEL PILIHAN
-        if (namaMapel.includes('SENI') || namaMapel.includes('PILIHAN') || namaMapel.includes('LINTAS MINAT')) {
-          if (!pilihanSiswa || !namaMapel.includes(pilihanSiswa)) {
-            setErrorMsg(`🚫 Akses ditolak. Ujian ini untuk ${namaMapel}, sedangkan mapel pilihan Anda adalah ${dataProfil?.mapel_pilihan || 'Belum Diatur'}.`);
-            setLoading(false);
-            return;
-          }
-        }
+        const rawMapel = Array.isArray(dataJadwal.mapel) ? dataJadwal.mapel[0] : dataJadwal.mapel;
+        const jadwal = {
+          ...dataJadwal,
+          mapel: rawMapel
+        } as unknown as DetailJadwal;
 
         setDetailJadwal(jadwal);
 
+        // Ambil seluruh soal dari guru berdasarkan ID Mapel, Kelas, dan Jurusan Siswa
         let querySoal = supabase
           .from('soal')
           .select('*')
@@ -338,10 +324,55 @@ export default function LembarUjianPage() {
         const { data: dataSoal, error: errorSoal } = await querySoal;
 
         if (errorSoal || !dataSoal || dataSoal.length === 0) {
-          setErrorMsg(`⚠️ Tidak ditemukan butir soal yang cocok untuk kriteria kelas Anda (${kelasUtuhSiswa}).`);
+          setErrorMsg(`⚠️ Tidak ditemukan butir soal yang cocok untuk kelas & jurusan Anda (${kelasUtuhSiswa}).`);
           return;
         }
 
+        // =========================================================================
+        // LOGIKA PENYARINGAN SOAL:
+        // =========================================================================
+        const statusMapelJadwal = jadwal.mapel?.status_mapel?.trim().toLowerCase() || '';
+        let filteredSoalList: Soal[] = [];
+
+        if (statusMapelJadwal !== '') {
+          // JIKA JADWAL MEMILIKI STATUS KHUSUS:
+          // Pencocokan status_mapel jadwal dengan agama / mapel_pilihan di profil siswa
+          filteredSoalList = dataSoal.filter((soalItem) => {
+            const statusKhususSoal = soalItem.status_khusus?.trim().toLowerCase() || '';
+
+            if (!statusKhususSoal || statusKhususSoal === 'umum') {
+              return true;
+            }
+
+            const cocokAgama = statusMapelJadwal === agamaSiswa;
+            const cocokMapelPilihan = statusMapelJadwal === mapelPilihanSiswa;
+
+            if (cocokAgama || cocokMapelPilihan) {
+              return (
+                statusKhususSoal === statusMapelJadwal ||
+                statusKhususSoal === agamaSiswa ||
+                statusKhususSoal === mapelPilihanSiswa
+              );
+            }
+
+            return false;
+          });
+
+          if (filteredSoalList.length === 0) {
+            filteredSoalList = dataSoal;
+          }
+        } else {
+          // JIKA JADWAL TIDAK MEMILIKI STATUS KHUSUS:
+          // Abaikan agama dan mapel pilihan, langsung gunakan seluruh soal berdasarkan Kelas & Jurusan
+          filteredSoalList = dataSoal;
+        }
+
+        if (filteredSoalList.length === 0) {
+          setErrorMsg(`⚠️ Tidak ada soal yang tersedia untuk ujian ini.`);
+          return;
+        }
+
+        // Restore riwayat jawaban
         const localBackup = localStorage.getItem(`backup_jawaban_${idJadwal}`);
         let mappingJawaban: { [key: string]: string } = localBackup ? JSON.parse(localBackup) : {};
 
@@ -359,6 +390,7 @@ export default function LembarUjianPage() {
 
         setJawabanSiswa(mappingJawaban);
 
+        // Pengacakan / Urutan Soal
         let finalSoalList: Soal[] = [];
         const storageKeyUrutan = `urutan_soal_${idJadwal}_${siswaId}`;
         const savedOrderJson = localStorage.getItem(storageKeyUrutan);
@@ -366,25 +398,25 @@ export default function LembarUjianPage() {
         if (jadwal.mapel?.acak_soal) {
           if (savedOrderJson) {
             const savedOrderIds: string[] = JSON.parse(savedOrderJson);
-            const soalMap = new Map<string, Soal>(dataSoal.map((s) => [s.id, s]));
+            const soalMap = new Map<string, Soal>(filteredSoalList.map((s) => [s.id, s]));
             
             finalSoalList = savedOrderIds
               .map((id) => soalMap.get(id))
               .filter((s): s is Soal => s !== undefined);
 
-            if (finalSoalList.length < dataSoal.length) {
-              const missingSoal = dataSoal.filter((s) => !savedOrderIds.includes(s.id));
+            if (finalSoalList.length < filteredSoalList.length) {
+              const missingSoal = filteredSoalList.filter((s) => !savedOrderIds.includes(s.id));
               finalSoalList = [...finalSoalList, ...missingSoal];
             }
           } else {
-            const randomizedGrup = acakSoalGrup(dataSoal);
+            const randomizedGrup = acakSoalGrup(filteredSoalList);
             const limitedRandom = randomizedGrup.slice(0, jadwal.jumlah_soal_tampil);
             const orderIds = limitedRandom.map((s) => s.id);
             localStorage.setItem(storageKeyUrutan, JSON.stringify(orderIds));
             finalSoalList = limitedRandom;
           }
         } else {
-          finalSoalList = [...dataSoal].sort((a, b) => a.id.localeCompare(b.id));
+          finalSoalList = [...filteredSoalList].sort((a, b) => a.id.localeCompare(b.id));
         }
 
         setListSoalUjian(finalSoalList.slice(0, jadwal.jumlah_soal_tampil));
@@ -416,6 +448,7 @@ export default function LembarUjianPage() {
     }, 500);
   };
 
+  // Timer Hitung Mundur
   useEffect(() => {
     if (!detailJadwal || !hasAgreedRules) return;
 
@@ -457,6 +490,7 @@ export default function LembarUjianPage() {
     }
   };
 
+  // Anti-Cheat Guard
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -565,7 +599,7 @@ export default function LembarUjianPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center text-xs font-bold text-slate-400 tracking-widest uppercase animate-pulse">
-        ⏳ Menyiapkan Lembar Berkas...
+        ⏳ Menyiapkan Ujian...
       </div>
     );
   }
@@ -586,6 +620,7 @@ export default function LembarUjianPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       
+      {/* POP-UP ATURAN UJIAN */}
       {!hasAgreedRules && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
@@ -596,22 +631,19 @@ export default function LembarUjianPage() {
               </h2>
               <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">
                 Mata Pelajaran: {detailJadwal?.mapel?.nama_mapel || 'Ujian Online'}
+                {detailJadwal?.mapel?.status_mapel && (
+                  <span className="ml-1 text-amber-600">[{detailJadwal.mapel.status_mapel}]</span>
+                )}
               </p>
             </div>
 
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-3 leading-relaxed text-slate-700">
               <p className="font-bold text-slate-900">Harap diperhatikan aturan keamanan berikut:</p>
               <ul className="list-disc pl-4 space-y-1.5 text-slate-600">
-                <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong> &amp; <strong className="text-slate-800">Tanpa Sleep</strong>.</li>
-                <li><strong className="text-red-600">Dilarang</strong> berpindah tab, membuka aplikasi lain, atau memperkecil browser.</li>
-                <li>Fitur <strong className="text-red-600">Copy-Paste</strong> dan klik kanan telah dinonaktifkan.</li>
+                <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong>.</li>
+                <li><strong className="text-red-600">Dilarang</strong> berpindah tab atau memperkecil browser.</li>
                 <li>Batas toleransi pelanggaran adalah <strong className="text-red-600">{maxPelanggaran} Kali</strong>.</li>
-                <li>Jika melanggar {maxPelanggaran} kali, sistem akan <strong className="text-red-600">MEMAKSA MENGUMPULKAN</strong> seluruh jawaban Anda secara otomatis.</li>
               </ul>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 font-medium">
-              💡 Pastikan baterai dan koneksi internet Anda stabil selama ujian berlangsung.
             </div>
 
             <button
@@ -624,14 +656,16 @@ export default function LembarUjianPage() {
         </div>
       )}
 
+      {/* INDIKATOR PELANGGARAN */}
       {pelanggaranCount > 0 && (
         <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-xl font-bold flex justify-between items-center shadow-sm">
-          <span>⚠️ Terdeteksi keluar dari fokus area lembar pengerjaan!</span>
+          <span>⚠️ Terdeteksi keluar dari layar ujian!</span>
           <span>Pelanggaran: {pelanggaranCount} / {maxPelanggaran}</span>
         </div>
       )}
 
       <div className="max-w-5xl mx-auto space-y-4">
+        {/* Header Informasi */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center text-xs">
           <div>
             <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
@@ -644,6 +678,7 @@ export default function LembarUjianPage() {
           </div>
         </div>
 
+        {/* Kotak Soal */}
         {soalSaatIni && (
           <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
             <div className="space-y-3">
@@ -661,6 +696,7 @@ export default function LembarUjianPage() {
               )}
             </div>
 
+            {/* Opsi Jawaban */}
             <div className="grid grid-cols-1 gap-3 text-xs">
               {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
                 const textKey = `opsi_${letter.toLowerCase()}` as keyof Soal;
@@ -701,6 +737,7 @@ export default function LembarUjianPage() {
               })}
             </div>
 
+            {/* Navigasi Soal */}
             <div className="flex justify-between items-center pt-4 border-t border-slate-100">
               <button
                 disabled={nomorAktif === 0}
@@ -731,6 +768,7 @@ export default function LembarUjianPage() {
         )}
       </div>
 
+      {/* Navigasi Nomor Soal Floating */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
         {isNavOpen && (
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
@@ -759,6 +797,7 @@ export default function LembarUjianPage() {
         </button>
       </div>
 
+      {/* POPUP SUBMIT */}
       {showConfirmSubmit && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-md w-full space-y-5 shadow-2xl text-center">
@@ -766,7 +805,7 @@ export default function LembarUjianPage() {
             <div className="space-y-1">
               <h3 className="text-base font-black text-slate-900 tracking-wide">Kumpulkan Lembar Jawaban?</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Pastikan seluruh butir pertanyaan telah Anda periksa kembali dengan teliti sebelum mengirim berkas.
+                Pastikan seluruh butir pertanyaan telah Anda periksa kembali.
               </p>
             </div>
 
@@ -813,13 +852,14 @@ export default function LembarUjianPage() {
         </div>
       )}
 
+      {/* POPUP PELANGGARAN */}
       {showPelanggaranPopup && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
             <span className="text-3xl block">🚨</span>
             <h3 className="text-sm font-black text-red-600 uppercase tracking-wider">Peringatan Keamanan Ujian</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Sistem mencatat Anda keluar dari mode ujian layar penuh atau meninggalkan jendela ujian.
+              Sistem mencatat Anda keluar dari layar penuh atau meninggalkan jendela ujian.
             </p>
             <div className="bg-red-50 text-red-600 font-bold p-3 rounded-xl text-xs border border-red-200 font-mono">
               Total Pelanggaran: {pelanggaranCount} / {maxPelanggaran}

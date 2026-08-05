@@ -15,17 +15,20 @@ interface JadwalSiswa {
     nama_mapel: string;
     kelas: string | null;
     jurusan: string | null;
+    status_mapel: string | null;
   } | null;
 }
 
 export default function DashboardSiswaPage() {
   const router = useRouter();
   const [namaSiswa, setNamaSiswa] = useState('');
-  const [kelasSiswa, setKelasSiswa] = useState(''); // Menyimpan format lengkap dari localStorage (Contoh: "X TKJ 1")
+  const [kelasSiswa, setKelasSiswa] = useState(''); 
   const [tingkatSiswa, setTingkatSiswa] = useState('');
   const [jurusanSiswa, setJurusanSiswa] = useState('');
+  const [agamaSiswa, setAgamaSiswa] = useState('');
+  const [mapelPilihanSiswa, setMapelPilihanSiswa] = useState('');
   
-  // 🏫 State Pengaturan Global (Diambil dari database)
+  // 🏫 State Pengaturan Global
   const [namaSekolah, setNamaSekolah] = useState('Ruang Ujian');
   
   const [ujianHariIni, setUjianHariIni] = useState<JadwalSiswa[]>([]);
@@ -35,23 +38,23 @@ export default function DashboardSiswaPage() {
   // 🕒 State pantau waktu real-time
   const [waktuSekarang, setWaktuSekarang] = useState(new Date());
 
-  // 🔑 State untuk Handle Modal Konfirmasi Token Internal
+  // 🔑 State Modal Token Internal
   const [selectedUjian, setSelectedUjian] = useState<JadwalSiswa | null>(null);
   const [inputToken, setInputToken] = useState('');
   const [tokenError, setTokenError] = useState('');
 
-  // 🚪 State untuk Handle Modal Konfirmasi Logout Custom
+  // 🚪 State Modal Logout
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  // 📍 State Geolokasi Proteksi Wilayah Sekolah
+  // 📍 State Geolokasi
   const [isDiDalamKawasan, setIsDiDalamKawasan] = useState<boolean | null>(null); 
   const [errorLokasi, setErrorLokasi] = useState<string>('');
   const [jarakKeSekolah, setJarakKeSekolah] = useState<number | null>(null);
   const [checkingLokasi, setCheckingLokasi] = useState<boolean>(true);
 
-  // 📏 FUNGSI HITUNG JARAK MATEMATIS (Rumus Haversine)
+  // 📏 FUNGSI HITUNG JARAK MATEMATIS (Haversine)
   const hitungJarakMeter = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3; // Radius bumi dalam satuan meter
+    const R = 6371e3;
     const phi1 = (lat1 * Math.PI) / 180;
     const phi2 = (lat2 * Math.PI) / 180;
     const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
@@ -65,13 +68,12 @@ export default function DashboardSiswaPage() {
     return R * c; 
   };
 
-  // 🛰️ VERIFIKASI SEBARAN GPS PERANGKAT SISWA DAN PENGATURAN GLOBAL
+  // 🛰️ VERIFIKASI SEBARAN GPS PERANGKAT SISWA
   const verifikasiLokasiSiswa = async () => {
     setCheckingLokasi(true);
     setErrorLokasi('');
 
     try {
-      // 🔄 1. Ambil data koordinat dan nama sekolah langsung dari pengaturan global di database
       const { data: globalConfig, error: errorConfig } = await supabase
         .from('pengaturan_global')
         .select('nama_sekolah, latitude_sekolah, longitude_sekolah, radius_maksimal_meter')
@@ -79,12 +81,10 @@ export default function DashboardSiswaPage() {
 
       if (errorConfig) throw errorConfig;
 
-      // Atur nama sekolah jika ada di database
       if (globalConfig?.nama_sekolah) {
         setNamaSekolah(globalConfig.nama_sekolah);
       }
 
-      // Validasi jika data koordinat belum di-setting oleh admin di database
       if (!globalConfig || globalConfig.latitude_sekolah === null || globalConfig.longitude_sekolah === null) {
         setErrorLokasi('Sistem gagal memuat konfigurasi geofencing sekolah. Hubungi admin.');
         setIsDiDalamKawasan(false);
@@ -103,7 +103,6 @@ export default function DashboardSiswaPage() {
         return;
       }
 
-      // 📡 2. Ambil titik koordinat GPS dari perangkat siswa
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -147,12 +146,10 @@ export default function DashboardSiswaPage() {
     }
   };
 
-  // Efek memicu pencarian koordinat di awal render
   useEffect(() => {
     verifikasiLokasiSiswa();
   }, []);
 
-  // Fungsi mengubah huruf pertama nama menjadi kapital
   const formatNama = (text: string) => {
     if (!text) return '';
     return text
@@ -162,25 +159,20 @@ export default function DashboardSiswaPage() {
       .join(' ');
   };
 
-  // Format tanggal lokal (Base YYYY-MM-DD)
   const getTanggalHariIni = () => {
     const tzoffset = (new Date()).getTimezoneOffset() * 60000; 
     const localISOTime = (new Date(Date.now() - tzoffset)).toISOString().slice(0, 10);
     return localISOTime;
   };
 
-  // 🚪 FUNGSI LOGOUT SISWA (EKSEKUSI SETELAH KONFIRMASI MODAL)
   const eksekusiLogout = () => {
     if (typeof window !== 'undefined') {
-      localStorage.clear(); // Bersihkan semua sisa token / data lokal sekaligus
+      localStorage.clear();
       sessionStorage.clear();
-      
-      // 🚀 DIUBAH: Mengarah ke portal root / pintu masuk utama dengan hard refresh
       window.location.href = '/';
     }
   };
 
-  // 🔄 Update clock monitor setiap 5 detik
   useEffect(() => {
     const intervalWaktu = setInterval(() => {
       setWaktuSekarang(new Date());
@@ -189,45 +181,65 @@ export default function DashboardSiswaPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const id = localStorage.getItem('session_siswa_id');
-      const nama = localStorage.getItem('session_siswa_nama');
-      const kelasLengkap = localStorage.getItem('session_siswa_kelas_lengkap'); // Contoh: "X TKJ 1"
-      const tingkat = localStorage.getItem('session_siswa_tingkat');
-      const jurusan = localStorage.getItem('session_siswa_jurusan');
+    const inisialisasiDashboard = async () => {
+      if (typeof window === 'undefined') return;
 
+      const id = localStorage.getItem('session_siswa_id');
       if (!id) {
-        // 🚀 DIUBAH: Proteksi penendang siswa tanpa sesi mengarah ke portal utama
         router.push('/');
         return;
       }
 
-      setNamaSiswa(formatNama(nama || 'Siswa'));
-      setKelasSiswa(kelasLengkap || '-');
-      setTingkatSiswa(tingkat || '');
-      setJurusanSiswa(jurusan || '');
+      // Ambil data profil lengkap (termasuk agama & mapel_pilihan) dari Supabase
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('nama_lengkap, kelas, agama, mapel_pilihan')
+        .eq('id', id)
+        .maybeSingle();
 
-      // Memasukkan parameter kelasLengkap dan jurusan siswa dengan benar
-      fetchDataDashboardLengkap(id, kelasLengkap || '', jurusan || '');
-    }
+      const nama = profileData?.nama_lengkap || localStorage.getItem('session_siswa_nama') || 'Siswa';
+      const kelasLengkap = profileData?.kelas || localStorage.getItem('session_siswa_kelas_lengkap') || '-';
+      const agama = profileData?.agama || '';
+      const mapelPilihan = profileData?.mapel_pilihan || '';
+
+      const bagianKelas = kelasLengkap.split(/\s+/);
+      const tingkat = bagianKelas[0] || '';
+      const jurusan = bagianKelas[1] || '';
+
+      setNamaSiswa(formatNama(nama));
+      setKelasSiswa(kelasLengkap);
+      setTingkatSiswa(tingkat);
+      setJurusanSiswa(jurusan);
+      setAgamaSiswa(agama);
+      setMapelPilihanSiswa(mapelPilihan);
+
+      fetchDataDashboardLengkap(id, kelasLengkap, jurusan, agama, mapelPilihan);
+    };
+
+    inisialisasiDashboard();
   }, [router]);
 
-  // Fungsi gabungan memuat Jadwal sekaligus status pengerjaan siswa (DISESUAIKAN)
-  const fetchDataDashboardLengkap = async (siswaId: string, kelasLengkapSiswa: string, jurusanSiswa: string) => {
+  const fetchDataDashboardLengkap = async (
+    siswaId: string, 
+    kelasLengkapSiswa: string, 
+    jurusanSiswa: string,
+    agama: string,
+    mapelPilihan: string
+  ) => {
     setFetchingUjian(true);
     try {
       const tanggalHariIni = getTanggalHariIni();
 
-      // 1. Ambil list ujian hari ini
+      // 1. Ambil list ujian hari ini + status_mapel
       const { data: dataJadwal, error: errorJadwal } = await supabase
         .from('jadwal_ujian')
-        .select('id, tanggal_ujian, jam_mulai, durasi_menit, token_ujian, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan)')
+        .select('id, tanggal_ujian, jam_mulai, durasi_menit, token_ujian, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan, status_mapel)')
         .eq('tanggal_ujian', tanggalHariIni)
         .order('jam_mulai', { ascending: true });
 
       if (errorJadwal) throw errorJadwal;
 
-      // 2. Ambil riwayat ujian yang SUDAH BERHASIL DISUBMIT di tabel nilai_siswa
+      // 2. Ambil riwayat ujian yang SUDAH DISUBMIT
       const { data: dataNilai, error: errorNilai } = await supabase
         .from('nilai_siswa')
         .select('id_jadwal')
@@ -244,31 +256,40 @@ export default function DashboardSiswaPage() {
         const hasilFilter = (dataJadwal as unknown as JadwalSiswa[]).filter((jadwal) => {
           if (!jadwal.mapel) return false;
 
-          // 🧹 Standardisasi data dari Database (Uppercased & trimmed)
           const kelasMapelDb = (jadwal.mapel.kelas || '').trim().toUpperCase();
           const jurusanMapelDb = (jadwal.mapel.jurusan || '').trim().toUpperCase();
+          const statusMapelDb = (jadwal.mapel.status_mapel || '').trim().toLowerCase();
 
-          // 🧹 Standardisasi data dari Perangkat/Siswa
-          const kelasSiswaClean = kelasLengkapSiswa.trim().toUpperCase(); // Contoh: "X TKJ 1"
-          const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();    // Contoh: "TKJ"
-          
-          // 🎯 Ekstrak Tingkat Saja (Ambil kata pertama dari "X TKJ 1" -> Hasilnya "X")
+          const kelasSiswaClean = kelasLengkapSiswa.trim().toUpperCase();
+          const jurusanSiswaClean = jurusanSiswa.trim().toUpperCase();
           const tingkatSiswaClean = kelasSiswaClean.split(' ')[0] || '';
+          
+          const agamaClean = agama.trim().toLowerCase();
+          const mapelPilihanClean = mapelPilihan.trim().toLowerCase();
 
           // 🚀 LOGIKA FILTER KELAS
           const cocokKelas = 
-            kelasMapelDb === '' ||                // Jika dikosongkan (semua kelas)
-            kelasMapelDb === 'SEMUA' ||           // Jika ditulis SEMUA
-            kelasMapelDb === kelasSiswaClean ||   // Spesifik: "X TKJ 1" == "X TKJ 1"
-            kelasMapelDb === tingkatSiswaClean;   // Angkatan: "X" == "X"
+            kelasMapelDb === '' || 
+            kelasMapelDb === 'SEMUA' || 
+            kelasMapelDb === kelasSiswaClean || 
+            kelasMapelDb === tingkatSiswaClean;
 
           // 🚀 LOGIKA FILTER JURUSAN
           const cocokJurusan = 
-            jurusanMapelDb === '' ||              // Jika dikosongkan (semua jurusan)
-            jurusanMapelDb === 'UMUM' ||          // Jika soal umum
-            jurusanMapelDb === jurusanSiswaClean; // Spesifik jurusan: "TKJ" == "TKJ"
+            jurusanMapelDb === '' || 
+            jurusanMapelDb === 'UMUM' || 
+            jurusanMapelDb === jurusanSiswaClean;
 
-          return cocokKelas && cocokJurusan;
+          // 🚀 LOGIKA FILTER STATUS MAPEL (AGAMA / MAPEL PILIHAN)
+          let cocokStatusMapel = false;
+          if (!statusMapelDb || statusMapelDb === 'umum' || statusMapelDb === 'semua') {
+            cocokStatusMapel = true;
+          } else {
+            // Jika mapel memiliki status khusus, cocokkan dengan agama/mapel pilihan siswa
+            cocokStatusMapel = (statusMapelDb === agamaClean) || (statusMapelDb === mapelPilihanClean);
+          }
+
+          return cocokKelas && cocokJurusan && cocokStatusMapel;
         });
 
         setUjianHariIni(hasilFilter);
@@ -280,7 +301,6 @@ export default function DashboardSiswaPage() {
     }
   };
 
-  // 🛠️ VALIDASI STATUS WAKTU
   const dapatkanStatusWaktuUjian = (tanggalUjian: string, jamMulai: string, durasiMenit: number) => {
     try {
       if (!tanggalUjian || !jamMulai) return 'habis';
@@ -310,20 +330,17 @@ export default function DashboardSiswaPage() {
     }
   };
 
-  // 🔑 VALIDASI TOKEN DI PORTAL DASHBOARD
   const handleVerifikasiTokenUjian = (e: React.FormEvent) => {
     e.preventDefault();
     setTokenError('');
 
     if (!selectedUjian) return;
 
-    // 🔒 PROTEKSI GEOLOKASI INTERNAL SAAT SUBMIT
     if (!isDiDalamKawasan) {
       setTokenError('🚫 Akses ditolak. Anda terdeteksi berada di luar kawasan sekolah.');
       return;
     }
 
-    // 🔒 PROTEKSI RIWAYAT
     const sudahDikerjakan = ujianSelesaiIds.includes(selectedUjian.id);
     if (sudahDikerjakan) {
       setTokenError('🚫 Anda sudah menyelesaikan ujian ini dan tidak dapat masuk kembali.');
@@ -351,42 +368,43 @@ export default function DashboardSiswaPage() {
   return (
     <div className="space-y-6 relative">
       
-      {/* 🌟 BANNER SELAMAT DATANG DENGAN GRADASI KEREN & MODERN 🌟 */}
-      <div className="relative overflow-hidden bg-gradient-to-tr from-blue-700 via-indigo-600 to-violet-600 p-7 rounded-2xl text-white shadow-lg shadow-indigo-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        {/* Ornamen Estetik Halus di Latar Belakang Banner */}
+      {/* BANNER SELAMAT DATANG */}
+      <div className="relative overflow-hidden bg-gradient-to-tr from-blue-700 via-indigo-600 to-violet-600 p-6 sm:p-7 rounded-2xl text-white shadow-lg shadow-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-5">
+        {/* Background Blur Elements */}
         <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -left-10 -bottom-10 w-36 h-36 bg-fuchsia-500/20 rounded-full blur-2xl pointer-events-none" />
         
-        <div className="relative z-10">
-          <h2 className="text-xl font-black tracking-wide leading-tight">
+        {/* Teks Ucapan Selamat Datang */}
+        <div className="relative z-10 space-y-1.5 max-w-xl">
+          <h2 className="text-lg sm:text-xl font-black tracking-wide leading-tight">
             Selamat Datang <span className="text-yellow-300 drop-shadow-sm">{namaSiswa}</span> di {namaSekolah}! 👋
           </h2>
-          <p className="text-xs text-indigo-100/90 mt-1.5 font-medium flex items-center gap-1.5">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Sistem Ujian Khusus Area Sekolah (Geofencing GPS) Aktif.
+          <p className="text-xs text-indigo-100/90 font-medium flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span>Sistem Ujian Khusus Area Sekolah (Geofencing GPS) Aktif.</span>
           </p>
         </div>
 
-        {/* CONTROLS PROFILE & LOGOUT */}
-        <div className="relative z-10 flex items-center gap-3 self-start sm:self-auto">
-          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2 rounded-xl shrink-0 shadow-inner">
-            <span className="text-lg">🏫</span>
+        {/* Kontainer Kelas dan Logout (Selalu berada di dalam banner) */}
+        <div className="relative z-10 flex flex-wrap items-center justify-start md:justify-end gap-3 shrink-0 pt-3 md:pt-0 border-t md:border-t-0 border-white/10">
+          <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-md border border-white/20 px-3.5 py-2 rounded-xl shadow-inner">
+            <span className="text-base">🏫</span>
             <div>
-              <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-200">Kelas</div>
-              <div className="text-xs font-mono font-black text-yellow-300">{kelasSiswa}</div>
+              <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-200 leading-none">Kelas</div>
+              <div className="text-xs font-mono font-black text-yellow-300 mt-0.5">{kelasSiswa}</div>
             </div>
           </div>
 
           <button
             onClick={() => setShowLogoutModal(true)}
-            className="flex items-center gap-2 bg-red-500 hover:bg-red-600 hover:scale-[1.02] active:scale-[0.98] border border-red-400/20 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md shrink-0"
+            className="flex items-center gap-2 bg-red-500 hover:bg-red-600 hover:scale-[1.02] active:scale-[0.98] border border-red-400/30 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-md"
           >
             <span>Logout</span> 🚪
           </button>
         </div>
       </div>
 
-      {/* 📡 STATUS DETEKSI GEOLOKASI */}
+      {/* STATUS GEOLOKASI */}
       <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all ${
         checkingLokasi ? 'bg-blue-50 border-blue-200 text-blue-800' :
         isDiDalamKawasan ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
@@ -471,7 +489,6 @@ export default function DashboardSiswaPage() {
                     </div>
                   </div>
                   
-                  {/* BUTTON VALIDATION CONTROLLER */}
                   {sudahDikerjakan ? (
                     <button 
                       disabled
@@ -535,7 +552,7 @@ export default function DashboardSiswaPage() {
         </button>
       </div>
 
-      {/* 🔑 FLOATING MODAL INPUT TOKEN */}
+      {/* FLOATING MODAL INPUT TOKEN */}
       {selectedUjian && isDiDalamKawasan && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full shadow-2xl space-y-4">
@@ -589,7 +606,7 @@ export default function DashboardSiswaPage() {
         </div>
       )}
 
-      {/* 🚪 FLOATING MODAL LOGOUT CUSTOM */}
+      {/* FLOATING MODAL LOGOUT */}
       {showLogoutModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full shadow-2xl space-y-4 text-center">
