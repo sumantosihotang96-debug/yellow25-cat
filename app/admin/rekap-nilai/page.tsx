@@ -258,46 +258,46 @@ export default function RekapNilaiAdminPage() {
   };
 
   return (
-    <div className="space-y-8 relative">
+    <div className="space-y-8 relative text-slate-900">
       {notifikasi && (
         <div className={`fixed top-4 right-4 z-50 flex items-center p-4 rounded-xl shadow-xl border transition-all duration-300 max-w-md ${
-          notifikasi.tipe === 'sukses' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+          notifikasi.tipe === 'sukses' ? 'bg-emerald-50 border-emerald-200 text-emerald-950' : 'bg-rose-50 border-rose-200 text-rose-950'
         }`}>
           <div className="text-sm font-semibold">{notifikasi.pesan}</div>
         </div>
       )}
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-800">Rekap Nilai Global</h1>
-        <p className="text-gray-500 text-sm">Laporan perolehan nilai hasil ujian seluruh siswa untuk kebutuhan evaluasi dan cetak rapor.</p>
+        <h1 className="text-2xl font-bold text-slate-900">Rekap Nilai Global</h1>
+        <p className="text-slate-500 text-sm">Laporan perolehan nilai hasil ujian seluruh siswa untuk kebutuhan evaluasi dan cetak rapor.</p>
       </div>
 
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="flex flex-wrap items-center gap-4 flex-1">
           <div className="w-full sm:w-48">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Filter per Kelas</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Filter per Kelas</label>
             <select
               value={selectedKelas}
               onChange={(e) => setSelectedKelas(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium focus:border-blue-500"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white font-medium focus:border-blue-500"
             >
-              <option value="SEMUA">🌐 Semua Kelas</option>
+              <option value="SEMUA" className="text-slate-900 bg-white">🌐 Semua Kelas</option>
               {daftarKelas.map((kls) => (
-                <option key={kls} value={kls}>🏫 {kls}</option>
+                <option key={kls} value={kls} className="text-slate-900 bg-white">🏫 {kls}</option>
               ))}
             </select>
           </div>
 
           <div className="w-full sm:w-64">
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Filter per Mata Pelajaran</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Filter per Mata Pelajaran</label>
             <select
               value={selectedMapel}
               onChange={(e) => setSelectedMapel(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-gray-950 bg-white font-medium focus:border-blue-500"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 bg-white font-medium focus:border-blue-500"
             >
-              <option value="SEMUA">🌐 Semua Mata Pelajaran</option>
+              <option value="SEMUA" className="text-slate-900 bg-white">🌐 Semua Mata Pelajaran</option>
               {daftarMapel.map((mpl) => (
-                <option key={mpl} value={mpl}>📖 {mpl}</option>
+                <option key={mpl} value={mpl} className="text-slate-900 bg-white">📖 {mpl}</option>
               ))}
             </select>
           </div>
@@ -326,10 +326,10 @@ export default function RekapNilaiAdminPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-100 text-gray-600 text-sm font-semibold">
+            <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 text-sm font-semibold">
               <th className="p-4 w-16">No.</th>
               <th className="p-4">Nama Siswa</th>
               <th className="p-4 w-32">Kelas</th>
@@ -338,24 +338,24 @@ export default function RekapNilaiAdminPage() {
               <th className="p-4 text-center w-24">Aksi</th>
             </tr>
           </thead>
-          <tbody className="text-gray-700 text-sm divide-y divide-gray-50">
+          <tbody className="text-slate-800 text-sm divide-y divide-slate-100">
             {fetching ? (
-              <tr><td colSpan={6} className="text-center p-8 text-gray-400">Sedang menarik data rekap nilai...</td></tr>
+              <tr><td colSpan={6} className="text-center p-8 text-slate-500">Sedang menarik data rekap nilai...</td></tr>
             ) : filteredNilai.length === 0 ? (
-              <tr><td colSpan={6} className="text-center p-8 text-gray-400">Tidak ada rekaman nilai ujian yang cocok dengan filter.</td></tr>
+              <tr><td colSpan={6} className="text-center p-8 text-slate-500">Tidak ada rekaman nilai ujian yang cocok dengan filter.</td></tr>
             ) : (
               filteredNilai.map((item, index) => (
-                <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="p-4 text-gray-500">{index + 1}</td>
-                  <td className="p-4 font-semibold text-gray-800">{item.nama_siswa || 'Siswa Tanpa Nama'}</td>
+                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="p-4 text-slate-500">{index + 1}</td>
+                  <td className="p-4 font-semibold text-slate-900">{item.nama_siswa || 'Siswa Tanpa Nama'}</td>
                   <td className="p-4">
-                    <span className="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded font-bold">
+                    <span className="bg-slate-100 text-slate-800 text-xs px-2 py-0.5 rounded font-bold border border-slate-200">
                       {item.kelas || '-'}
                     </span>
                   </td>
-                  <td className="p-4 text-gray-700">{item.jadwal?.mapel?.nama_mapel || '-'}</td>
+                  <td className="p-4 text-slate-800">{item.jadwal?.mapel?.nama_mapel || '-'}</td>
                   <td className="p-4 text-center">
-                    <span className={`font-mono font-black text-base ${item.nilai >= 75 ? 'text-green-600' : 'text-red-500'}`}>
+                    <span className={`font-mono font-black text-base ${item.nilai >= 75 ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {item.nilai}
                     </span>
                   </td>
@@ -385,14 +385,14 @@ export default function RekapNilaiAdminPage() {
       {/* Modal Reset Single */}
       {modalReset.isOpen && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full shadow-2xl space-y-5 transform scale-100 transition-all duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-sm w-full shadow-2xl space-y-5">
             <div className="text-center space-y-2">
               <span className="text-3xl inline-block bg-rose-50 p-3 rounded-full text-rose-600">⚠️</span>
-              <h3 className="font-bold text-gray-900 text-base">Konfirmasi Reset Ujian</h3>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Apakah Anda yakin ingin menghapus data nilai <span className="font-bold text-gray-800">"{modalReset.namaSiswa}"</span> pada mata pelajaran <span className="font-bold text-gray-800">"{modalReset.mapel}"</span>?
+              <h3 className="font-bold text-slate-900 text-base">Konfirmasi Reset Ujian</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Apakah Anda yakin ingin menghapus data nilai <span className="font-bold text-slate-950">"{modalReset.namaSiswa}"</span> pada mata pelajaran <span className="font-bold text-slate-950">"{modalReset.mapel}"</span>?
               </p>
-              <div className="p-2 bg-amber-50 rounded-lg text-[11px] font-medium text-amber-800 border border-amber-200 text-left">
+              <div className="p-2 bg-amber-50 rounded-lg text-[11px] font-semibold text-amber-950 border border-amber-200 text-left leading-relaxed">
                 📌 Catatan: Seluruh riwayat lembar jawaban siswa akan dibersihkan agar siswa dapat mengulang pengerjaan dari awal secara jujur.
               </div>
             </div>
@@ -401,7 +401,7 @@ export default function RekapNilaiAdminPage() {
               <button
                 type="button"
                 onClick={() => setModalReset({ isOpen: false, idRecord: '', idSiswa: '', idJadwal: '', namaSiswa: '', mapel: '' })}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl transition uppercase tracking-wider"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 rounded-xl transition uppercase tracking-wider"
               >
                 Batal
               </button>
@@ -420,21 +420,21 @@ export default function RekapNilaiAdminPage() {
       {/* Modal Konfirmasi Hapus Seluruh Hasil (Massal) */}
       {modalResetMasal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-md w-full shadow-2xl space-y-5 transform scale-100 transition-all duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-5">
             <div className="text-center space-y-2">
               <span className="text-3xl inline-block bg-rose-100 p-3 rounded-full text-rose-600">🔥</span>
-              <h3 className="font-bold text-gray-900 text-lg">Hapus Seluruh Hasil Ujian?</h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
+              <h3 className="font-bold text-slate-900 text-lg">Hapus Seluruh Hasil Ujian?</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
                 Tindakan ini akan menghapus <span className="font-bold text-rose-600">{filteredNilai.length} data hasil nilai</span> beserta <span className="font-bold text-rose-600">semua lembar jawaban siswa</span> yang saat ini tampil pada tabel filter:
               </p>
               
-              <div className="p-3 bg-gray-50 rounded-xl text-xs space-y-1 text-left border border-gray-200">
-                <div>🏫 <span className="font-semibold text-gray-700">Kelas:</span> {selectedKelas}</div>
-                <div>📖 <span className="font-semibold text-gray-700">Mata Pelajaran:</span> {selectedMapel}</div>
-                <div>📊 <span className="font-semibold text-gray-700">Jumlah Data Terkena Dampak:</span> {filteredNilai.length} siswa</div>
+              <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1.5 text-left border border-slate-200 text-slate-800">
+                <div>🏫 <span className="font-bold text-slate-900">Kelas:</span> {selectedKelas}</div>
+                <div>📖 <span className="font-bold text-slate-900">Mata Pelajaran:</span> {selectedMapel}</div>
+                <div>📊 <span className="font-bold text-slate-900">Jumlah Data Terkena Dampak:</span> {filteredNilai.length} siswa</div>
               </div>
 
-              <div className="p-2 bg-rose-50 rounded-lg text-[11px] font-medium text-rose-800 border border-rose-200 text-left">
+              <div className="p-2.5 bg-rose-50 rounded-lg text-[11px] font-bold text-rose-950 border border-rose-200 text-left leading-relaxed">
                 ⚠️ PERHATIAN: Tindakan ini permanen dan tidak dapat dibatalkan kembali!
               </div>
             </div>
@@ -444,7 +444,7 @@ export default function RekapNilaiAdminPage() {
                 type="button"
                 disabled={isDeleting}
                 onClick={() => setModalResetMasal(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl transition uppercase tracking-wider disabled:opacity-50"
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 rounded-xl transition uppercase tracking-wider disabled:opacity-50"
               >
                 Batal
               </button>
