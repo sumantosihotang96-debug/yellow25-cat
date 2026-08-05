@@ -39,13 +39,27 @@ export default function DataMapelPage() {
   const [tipeMaster, setTipeMaster] = useState<'kelas' | 'mapel' | 'jurusan' | 'status'>('kelas');
   const [inputMasterBaru, setInputMasterBaru] = useState('');
 
-  // State Modal Edit
+  // State Modal Edit Mapel
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editId, setEditId] = useState('');
   const [editKelas, setEditKelas] = useState(''); 
   const [editNama, setEditNama] = useState('');
   const [editJurusan, setEditJurusan] = useState(''); 
   const [editStatusMapel, setEditStatusMapel] = useState('');
+
+  // State Modal Konfirmasi Pop-Up (Tengah Layar)
+  const [modalKonfirmasi, setModalKonfirmasi] = useState<{
+    isOpen: boolean;
+    judul: string;
+    pesan: string;
+    tipeAksi: 'hapusMaster' | 'resetMapel' | null;
+    payload?: any;
+  }>({
+    isOpen: false,
+    judul: '',
+    pesan: '',
+    tipeAksi: null,
+  });
 
   const [notifikasi, setNotifikasi] = useState<{ pesan: string; tipe: 'sukses' | 'gagal' } | null>(null);
 
@@ -129,18 +143,24 @@ export default function DataMapelPage() {
       setNotifikasi({ pesan: `🎉 Opsi ${tipeMaster} baru berhasil ditambahkan!`, tipe: 'sukses' });
     } else {
       console.error("Tambah Master Error Message:", error.message);
-      console.error("Tambah Master Error Details:", error.details);
-      console.error("Tambah Master Error Hint:", error.hint);
       setNotifikasi({ pesan: `❌ Gagal: ${error.message || 'Data mungkin sudah ada/tabel belum dibuat.'}`, tipe: 'gagal' });
     }
     setLoading(false);
   };
 
-  // --- FUNGSI HAPUS DATA MASTER ---
-  const handleHapusMaster = async (namaItem: string) => {
-    const konfirmasi = confirm(`⚠️ Hapus opsi "${namaItem}" dari daftar ${tipeMaster}?`);
-    if (!konfirmasi) return;
+  // --- TRIGGER KONFIRMASI HAPUS MASTER ---
+  const triggerKonfirmasiHapusMaster = (namaItem: string) => {
+    setModalKonfirmasi({
+      isOpen: true,
+      judul: 'Hapus Opsi Dropdown',
+      pesan: `Apakah Anda yakin ingin menghapus opsi "${namaItem}" dari daftar ${tipeMaster}?`,
+      tipeAksi: 'hapusMaster',
+      payload: { namaItem }
+    });
+  };
 
+  // --- EKSEKUSI HAPUS MASTER ---
+  const eksekusiHapusMaster = async (namaItem: string) => {
     let tabelTarget = '';
     let kolomTarget = '';
 
@@ -198,12 +218,7 @@ export default function DataMapelPage() {
       fetchMapel(); 
       setNotifikasi({ pesan: '🎉 Mata pelajaran berhasil ditambahkan!', tipe: 'sukses' });
     } else {
-      // 💡 LOG ERROR DETAIL
       console.error("Gagal Tambah Mapel - Message:", error.message);
-      console.error("Gagal Tambah Mapel - Details:", error.details);
-      console.error("Gagal Tambah Mapel - Hint:", error.hint);
-      console.error("Gagal Tambah Mapel - Code:", error.code);
-
       setNotifikasi({ 
         pesan: `❌ Gagal: ${error.message || 'Cek konsol browser / constraint Supabase.'}`, 
         tipe: 'gagal' 
@@ -248,10 +263,8 @@ export default function DataMapelPage() {
     setLoading(false);
   };
 
+  // --- FUNGSI HAPUS MAPEL (LANGSUNG TANPA KONFIRMASI) ---
   const handleHapusMapel = async (id: string, nama: string) => {
-    const konfirmasi = confirm(`⚠️ Hapus mata pelajaran "${nama}"?`);
-    if (!konfirmasi) return;
-
     const { error } = await supabase
       .from('mapel')
       .delete()
@@ -259,18 +272,26 @@ export default function DataMapelPage() {
 
     if (!error) {
       fetchMapel(); 
-      setNotifikasi({ pesan: '🗑️ Data berhasil dihapus.', tipe: 'sukses' });
+      setNotifikasi({ pesan: `🗑️ Mata pelajaran "${nama}" berhasil dihapus.`, tipe: 'sukses' });
     } else {
       console.error("Hapus Mapel Error Message:", error.message);
       setNotifikasi({ pesan: `❌ Gagal menghapus data: ${error.message}`, tipe: 'gagal' });
     }
   };
 
-  const handleResetSemuaMapel = async () => {
+  // --- TRIGGER KONFIRMASI RESET SEMUA MAPEL ---
+  const triggerKonfirmasiResetSemuaMapel = () => {
     if (listMapel.length === 0) return;
-    const konfirmasi = confirm("⚠️ Hapus semua data di tabel ini? Tindakan ini permanen!");
-    if (!konfirmasi) return;
+    setModalKonfirmasi({
+      isOpen: true,
+      judul: 'Reset Seluruh Data Mapel',
+      pesan: 'Apakah Anda yakin ingin menghapus seluruh data mata pelajaran di tabel ini? Tindakan ini tidak dapat dibatalkan.',
+      tipeAksi: 'resetMapel'
+    });
+  };
 
+  // --- EKSEKUSI RESET MAPEL ---
+  const eksekusiResetSemuaMapel = async () => {
     setResetLoading(true);
 
     const { error } = await supabase
@@ -286,6 +307,18 @@ export default function DataMapelPage() {
       setNotifikasi({ pesan: `❌ Gagal mereset tabel: ${error.message}`, tipe: 'gagal' });
     }
     setResetLoading(false);
+  };
+
+  // --- EKSEKUTOR AKSI MODAL POPUP ---
+  const handleJalankanAksiModal = async () => {
+    const { tipeAksi, payload } = modalKonfirmasi;
+    setModalKonfirmasi({ isOpen: false, judul: '', pesan: '', tipeAksi: null });
+
+    if (tipeAksi === 'hapusMaster' && payload?.namaItem) {
+      await eksekusiHapusMaster(payload.namaItem);
+    } else if (tipeAksi === 'resetMapel') {
+      await eksekusiResetSemuaMapel();
+    }
   };
 
   const handleDownloadTemplate = () => {
@@ -406,7 +439,7 @@ export default function DataMapelPage() {
           <input type="file" ref={fileInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
           <button type="button" onClick={handleDownloadTemplate} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-bold transition-all">📥 Template CSV</button>
           <button type="button" disabled={importLoading} onClick={() => fileInputRef.current?.click()} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold disabled:opacity-50 transition-all">{importLoading ? '⏳ Mengimport...' : '📤 Import CSV'}</button>
-          <button type="button" disabled={resetLoading} onClick={handleResetSemuaMapel} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-bold transition-all">{resetLoading ? '⏳ Mereset...' : '💥 Reset Tabel'}</button>
+          <button type="button" disabled={resetLoading} onClick={triggerKonfirmasiResetSemuaMapel} className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-bold transition-all">{resetLoading ? '⏳ Mereset...' : '💥 Reset Tabel'}</button>
         </div>
       </div>
 
@@ -504,6 +537,7 @@ export default function DataMapelPage() {
                     <td className="p-3 sm:p-4 text-center">
                       <div className="flex justify-center items-center gap-1.5">
                         <button type="button" onClick={() => bukaModalEdit(mapel)} className="text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded border border-amber-200 text-xs font-bold transition-all">✏️ Edit</button>
+                        {/* Hapus Mapel Langsung Tanpa Konfirmasi */}
                         <button type="button" onClick={() => handleHapusMapel(mapel.id, mapel.nama_mapel)} className="text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded border border-red-200 text-xs font-bold transition-all">🗑️ Hapus</button>
                       </div>
                     </td>
@@ -515,7 +549,7 @@ export default function DataMapelPage() {
         </div>
       </div>
 
-      {/* MODAL KELOLA MASTER (TAMBAH & HAPUS) */}
+      {/* MODAL KELOLA MASTER (TAMBAH & HAPUS OPSI) */}
       {isMasterOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl border max-w-sm w-full p-5 sm:p-6 space-y-4">
@@ -543,7 +577,7 @@ export default function DataMapelPage() {
               </div>
             </form>
 
-            {/* List Data & Hapus */}
+            {/* List Data & Hapus Opsi Dropdown */}
             <div className="mt-4 border-t pt-4">
               <p className="text-xs font-semibold text-gray-600 mb-2">Daftar {tipeMaster === 'status' ? 'Status Khusus' : tipeMaster} Saat Ini:</p>
               <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
@@ -555,7 +589,7 @@ export default function DataMapelPage() {
                       <span className="text-xs sm:text-sm font-medium text-gray-700">{item}</span>
                       <button
                         type="button"
-                        onClick={() => handleHapusMaster(item)}
+                        onClick={() => triggerKonfirmasiHapusMaster(item)}
                         className="text-gray-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                         title={`Hapus ${item}`}
                       >
@@ -615,6 +649,39 @@ export default function DataMapelPage() {
           </div>
         </div>
       )}
+
+      {/* POP-UP MODAL KONFIRMASI (DI TENGAH LAYAR) */}
+      {modalKonfirmasi.isOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl border max-w-sm w-full p-5 sm:p-6 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto text-xl font-bold">
+              ⚠️
+            </div>
+            <div>
+              <h3 className="text-base font-black text-gray-900">{modalKonfirmasi.judul}</h3>
+              <p className="text-xs text-gray-600 mt-1.5 leading-relaxed">{modalKonfirmasi.pesan}</p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalKonfirmasi({ isOpen: false, judul: '', pesan: '', tipeAksi: null })}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 rounded-lg text-xs transition-all"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleJalankanAksiModal}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-xs shadow-sm transition-all"
+              >
+                Ya, Lanjutkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
