@@ -45,7 +45,7 @@ const acakArray = <T,>(array: T[]): T[] => {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [arr[i], arr[j]] = [arr[i], arr[j]];
   }
   return arr;
 };
@@ -153,6 +153,7 @@ export default function LembarUjianPage() {
     };
   }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
 
+  // EKSKUSI SUBMIT AKHIR DENGAN BATCH INSERT JAWABAN (HEMAT DATABASE)
   const eksekusiKirimJawabanAkhir = useCallback(async () => {
     if (submitting) return;
     setSubmitting(true);
@@ -172,6 +173,7 @@ export default function LembarUjianPage() {
       let jumlahBenar = 0;
       let jumlahSalah = 0;
 
+      // 1. Hitung Nilai Akhir
       listSoalUjian.forEach((soal) => {
         const jawabanSiswaTerpilih = jawabanSiswa[soal.id];
         if (
@@ -189,6 +191,22 @@ export default function LembarUjianPage() {
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
       const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
 
+      // 2. KIRIM SELURUH RINCIAN JAWABAN SEKALIGUS DALAM 1 REQUEST (BATCH UPSERT)
+      const listPayloadJawaban = Object.entries(jawabanSiswa).map(([idSoal, hurufOpsi]) => ({
+        id_siswa: uuidSiswaLogin,
+        id_jadwal: idJadwal,
+        id_soal: idSoal,
+        jawaban_terpilih: hurufOpsi,
+        updated_at: new Date().toISOString()
+      }));
+
+      if (listPayloadJawaban.length > 0) {
+        await supabase.from('jawaban_siswa').upsert(listPayloadJawaban, {
+          onConflict: 'id_siswa,id_jadwal,id_soal'
+        });
+      }
+
+      // 3. Simpan Nilai Akhir Siswa
       await supabase
         .from('nilai_siswa')
         .upsert({
@@ -203,6 +221,7 @@ export default function LembarUjianPage() {
           created_at: new Date().toISOString()
         }, { onConflict: 'id_siswa,id_jadwal' });
 
+      // Clean-up Penyimpanan Lokal
       localStorage.removeItem(`backup_jawaban_${idJadwal}`);
       localStorage.removeItem(`pelanggaran_${idJadwal}`);
       localStorage.removeItem(`urutan_soal_${idJadwal}_${uuidSiswaLogin}`);
@@ -353,7 +372,6 @@ export default function LembarUjianPage() {
 
         if (statusMapelJadwal !== '') {
           // JIKA JADWAL MEMILIKI STATUS KHUSUS:
-          // Pencocokan status_mapel jadwal dengan agama / mapel_pilihan di profil siswa
           filteredSoalList = dataSoal.filter((soalItem) => {
             const statusKhususSoal = soalItem.status_khusus?.trim().toLowerCase() || '';
 
@@ -380,7 +398,6 @@ export default function LembarUjianPage() {
           }
         } else {
           // JIKA JADWAL TIDAK MEMILIKI STATUS KHUSUS:
-          // Abaikan agama dan mapel pilihan, langsung gunakan seluruh soal berdasarkan Kelas & Jurusan
           filteredSoalList = dataSoal;
         }
 
@@ -401,7 +418,9 @@ export default function LembarUjianPage() {
 
         if (riwayatLama && riwayatLama.length > 0) {
           riwayatLama.forEach((row) => {
-            mappingJawaban[row.id_soal] = row.jawaban_terpilih;
+            if (!mappingJawaban[row.id_soal]) {
+              mappingJawaban[row.id_soal] = row.jawaban_terpilih;
+            }
           });
         }
 
@@ -586,25 +605,11 @@ export default function LembarUjianPage() {
     setTimeout(() => { isInteractingRef.current = false; }, 500);
   };
 
-  const handlePilihJawaban = async (idSoal: string, hurufOpsi: string) => {
+  // PEMILIHAN JAWABAN (OPTIMAL: HANYA SIMPAN DI LOCAL DB HP SISWA)
+  const handlePilihJawaban = (idSoal: string, hurufOpsi: string) => {
     const updatedJawaban = { ...jawabanSiswa, [idSoal]: hurufOpsi };
     setJawabanSiswa(updatedJawaban);
     localStorage.setItem(`backup_jawaban_${idJadwal}`, JSON.stringify(updatedJawaban));
-
-    try {
-      const siswaId = localStorage.getItem('session_siswa_id');
-      if (!siswaId) return;
-
-      await supabase.from('jawaban_siswa').upsert({
-        id_siswa: siswaId,
-        id_jadwal: idJadwal,
-        id_soal: idSoal,
-        jawaban_terpilih: hurufOpsi,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id_siswa,id_jadwal,id_soal' });
-    } catch (dbErr) {
-      console.error('Gagal sinkronisasi jawaban ke Supabase:', dbErr);
-    }
   };
 
   const paksaKembaliFullScreen = async () => {
