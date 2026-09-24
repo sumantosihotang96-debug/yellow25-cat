@@ -45,18 +45,16 @@ const acakArray = <T,>(array: T[]): T[] => {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[i], arr[j]];
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
 };
 
-// LOGIKA PENGACAKAN GRUP TERPERBAIKI: SOAL TERIKAT BERURUTAN DAN TIDAK TERPISAH
 const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
   if (!daftarSoal || daftarSoal.length === 0) return [];
 
   const mapGrup = new Map<string, Soal[]>();
 
-  // 1. Kelompokkan soal berdasarkan group_id
   daftarSoal.forEach((soal) => {
     const keyGrup = soal.group_id && soal.group_id.trim() !== '' 
       ? `GROUP_${soal.group_id.trim()}` 
@@ -68,7 +66,6 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
     mapGrup.get(keyGrup)!.push(soal);
   });
 
-  // 2. Pastikan urutan soal di DALAM setiap grup terikat tetap berurutan (berdasarkan created_at atau id)
   mapGrup.forEach((listSoalInGroup, key) => {
     if (key.startsWith('GROUP_')) {
       listSoalInGroup.sort((a, b) => {
@@ -80,11 +77,9 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
     }
   });
 
-  // 3. Acak urutan antar-blok grup
   const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
   const grupTeracak = acakArray(daftarSeluruhGrup);
 
-  // 4. Ratakan kembali menjadi 1 list soal yang utuh
   return grupTeracak.flat();
 };
 
@@ -100,6 +95,7 @@ export default function LembarUjianPage() {
   const [jawabanSiswa, setJawabanSiswa] = useState<{ [key: string]: string }>({});
 
   const [loading, setLoading] = useState(true);
+  const [loadingText, setLoadingText] = useState('Menyiapkan Ujian...');
   const [errorMsg, setErrorMsg] = useState('');
   const [nomorAktif, setNomorAktif] = useState(0);
   const [sisaDetik, setSisaDetik] = useState<number | null>(null);
@@ -114,9 +110,23 @@ export default function LembarUjianPage() {
   const [showPelanggaranPopup, setShowPelanggaranPopup] = useState(false);
   const [isForceSubmitted, setIsForceSubmitted] = useState(false);
   const [soalBelumDijawab, setSoalBelumDijawab] = useState<number[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const isInteractingRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const jawabanSiswaRef = useRef<{ [key: string]: string }>({});
+  jawabanSiswaRef.current = jawabanSiswa;
+
+  const namaSiswaRef = useRef<string>(namaSiswa);
+  namaSiswaRef.current = namaSiswa;
+
+  const submittingRef = useRef<boolean>(submitting);
+  submittingRef.current = submitting;
+
+  const listSoalUjianRef = useRef<Soal[]>(listSoalUjian);
+  listSoalUjianRef.current = listSoalUjian;
 
   const mintaLayarTetapAktif = useCallback(async () => {
     try {
@@ -124,7 +134,7 @@ export default function LembarUjianPage() {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
       }
     } catch (err) {
-      console.log('Fasilitas Wake Lock tidak didukung atau ditolak:', err);
+      console.log('Wake Lock tidak didukung:', err);
     }
   }, []);
 
@@ -153,29 +163,65 @@ export default function LembarUjianPage() {
     };
   }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
 
-  // EKSKUSI SUBMIT AKHIR DENGAN BATCH INSERT JAWABAN (HEMAT DATABASE)
+  // KONTROL FITUR 1: AUTO-SYNC / KIRIM JAWABAN KE SUPABASE SECARA BERKALA
+  const kirimSatuJawabanKeSupabase = async (idSoal: string, hurufOpsi: string) => {
+    const uuidSiswaLogin = localStorage.getItem('session_siswa_id');
+    if (!uuidSiswaLogin || !idJadwal) return;
+
+    try {
+      setIsSyncing(true);
+      await supabase.from('jawaban_siswa').upsert({
+        id_siswa: uuidSiswaLogin,
+        id_jadwal: idJadwal,
+        id_soal: idSoal,
+        jawaban_terpilih: hurufOpsi,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id_siswa,id_jadwal,id_soal' });
+    } catch (err) {
+      console.error('Gagal auto-sync jawaban:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePilihJawaban = (idSoal: string, hurufOpsi: string) => {
+    const updatedJawaban = { ...jawabanSiswaRef.current, [idSoal]: hurufOpsi };
+    setJawabanSiswa(updatedJawaban);
+    jawabanSiswaRef.current = updatedJawaban;
+    
+    // Simpan Instan ke LocalStorage
+    localStorage.setItem(`backup_jawaban_${idJadwal}`, JSON.stringify(updatedJawaban));
+
+    // Debounce Auto-Sync ke Supabase (Tunggu 2.5 Detik setelah klik terakhir)
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(() => {
+      kirimSatuJawabanKeSupabase(idSoal, hurufOpsi);
+    }, 2500);
+  };
+
+  // SUBMIT FINAL / AKHIR
   const eksekusiKirimJawabanAkhir = useCallback(async () => {
-    if (submitting) return;
+    if (submittingRef.current) return;
     setSubmitting(true);
+    submittingRef.current = true;
     setShowConfirmSubmit(false);
 
     try {
       const uuidSiswaLogin = localStorage.getItem('session_siswa_id');
       if (!uuidSiswaLogin) {
-        alert('Sesi Anda telah berakhir. Gagal menyimpan nilai.');
+        alert('Sesi Anda telah berakhir.');
         router.push('/login-siswa');
         return;
       }
 
-      const namaSiswaTerbaru = namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa';
+      const namaSiswaTerbaru = namaSiswaRef.current || localStorage.getItem('session_siswa_nama') || 'Siswa';
       const kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
 
       let jumlahBenar = 0;
       let jumlahSalah = 0;
 
-      // 1. Hitung Nilai Akhir
-      listSoalUjian.forEach((soal) => {
-        const jawabanSiswaTerpilih = jawabanSiswa[soal.id];
+      listSoalUjianRef.current.forEach((soal) => {
+        const jawabanSiswaTerpilih = jawabanSiswaRef.current[soal.id];
         if (
           jawabanSiswaTerpilih &&
           soal.jawaban_benar &&
@@ -187,12 +233,12 @@ export default function LembarUjianPage() {
         }
       });
 
-      const totalSoal = listSoalUjian.length;
+      const totalSoal = listSoalUjianRef.current.length;
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
       const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
 
-      // 2. KIRIM SELURUH RINCIAN JAWABAN SEKALIGUS DALAM 1 REQUEST (BATCH UPSERT)
-      const listPayloadJawaban = Object.entries(jawabanSiswa).map(([idSoal, hurufOpsi]) => ({
+      // Final Batch Sync
+      const listPayloadJawaban = Object.entries(jawabanSiswaRef.current).map(([idSoal, hurufOpsi]) => ({
         id_siswa: uuidSiswaLogin,
         id_jadwal: idJadwal,
         id_soal: idSoal,
@@ -206,7 +252,6 @@ export default function LembarUjianPage() {
         });
       }
 
-      // 3. Simpan Nilai Akhir Siswa
       await supabase
         .from('nilai_siswa')
         .upsert({
@@ -221,7 +266,6 @@ export default function LembarUjianPage() {
           created_at: new Date().toISOString()
         }, { onConflict: 'id_siswa,id_jadwal' });
 
-      // Clean-up Penyimpanan Lokal
       localStorage.removeItem(`backup_jawaban_${idJadwal}`);
       localStorage.removeItem(`pelanggaran_${idJadwal}`);
       localStorage.removeItem(`urutan_soal_${idJadwal}_${uuidSiswaLogin}`);
@@ -234,14 +278,15 @@ export default function LembarUjianPage() {
 
       router.push('/siswa/dashboard');
     } catch (err) {
-      console.error('Terjadi kesalahan fatal saat submit:', err);
+      console.error('Terjadi kesalahan saat submit:', err);
       router.push('/siswa/dashboard');
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
-  }, [idJadwal, listSoalUjian, jawabanSiswa, namaSiswa, router, submitting, lepasLayarTetapAktif]);
+  }, [idJadwal, router, lepasLayarTetapAktif]);
 
-  // 1. Inisialisasi Data & Filter Soal Berdasarkan Status Mapel vs Kelas/Jurusan
+  // INISIALISASI DATA SISWA DENGAN PENANGANAN LALU LINTAS TINGGI (STAGGERED DELAY)
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined' || !idJadwal) return;
@@ -252,6 +297,13 @@ export default function LembarUjianPage() {
       }
 
       try {
+        // KONTROL FITUR 2: DELAY ACAK UNTUK MENCEGAH SERVER CRASH SAAT LOGIN MASAL
+        setLoadingText('Memasuki Antrean Server Ujian...');
+        const randomDelay = Math.floor(Math.random() * 2500) + 200; // Delay acak 0.2s - 2.7s
+        await new Promise((res) => setTimeout(res, randomDelay));
+
+        setLoadingText('Menyiapkan Lembar Ujian...');
+
         const { data: config } = await supabase
           .from('pengaturan_global')
           .select('maksimal_pelanggaran')
@@ -283,7 +335,6 @@ export default function LembarUjianPage() {
         setPelanggaranCount(initialPelanggaran);
         localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
 
-        // Ambil data profil siswa
         const { data: dataProfil } = await supabase
           .from('profiles')
           .select('nama_lengkap, kelas, agama, mapel_pilihan')
@@ -308,7 +359,6 @@ export default function LembarUjianPage() {
           }
         }
 
-        // Ambil detail jadwal ujian
         const { data: dataJadwal, error: errorJadwal } = await supabase
           .from('jadwal_ujian')
           .select(`
@@ -343,7 +393,6 @@ export default function LembarUjianPage() {
 
         setDetailJadwal(jadwal);
 
-        // Ambil seluruh soal dari guru berdasarkan ID Mapel, Kelas, dan Jurusan Siswa
         let querySoal = supabase
           .from('soal')
           .select('*')
@@ -364,14 +413,10 @@ export default function LembarUjianPage() {
           return;
         }
 
-        // =========================================================================
-        // LOGIKA PENYARINGAN SOAL:
-        // =========================================================================
         const statusMapelJadwal = jadwal.mapel?.status_mapel?.trim().toLowerCase() || '';
         let filteredSoalList: Soal[] = [];
 
         if (statusMapelJadwal !== '') {
-          // JIKA JADWAL MEMILIKI STATUS KHUSUS:
           filteredSoalList = dataSoal.filter((soalItem) => {
             const statusKhususSoal = soalItem.status_khusus?.trim().toLowerCase() || '';
 
@@ -397,7 +442,6 @@ export default function LembarUjianPage() {
             filteredSoalList = dataSoal;
           }
         } else {
-          // JIKA JADWAL TIDAK MEMILIKI STATUS KHUSUS:
           filteredSoalList = dataSoal;
         }
 
@@ -406,7 +450,7 @@ export default function LembarUjianPage() {
           return;
         }
 
-        // Restore riwayat jawaban
+        // Restore Riwayat Jawaban
         const localBackup = localStorage.getItem(`backup_jawaban_${idJadwal}`);
         let mappingJawaban: { [key: string]: string } = localBackup ? JSON.parse(localBackup) : {};
 
@@ -425,8 +469,8 @@ export default function LembarUjianPage() {
         }
 
         setJawabanSiswa(mappingJawaban);
+        jawabanSiswaRef.current = mappingJawaban;
 
-        // Pengacakan / Urutan Soal
         let finalSoalList: Soal[] = [];
         const storageKeyUrutan = `urutan_soal_${idJadwal}_${siswaId}`;
         const savedOrderJson = localStorage.getItem(storageKeyUrutan);
@@ -452,7 +496,6 @@ export default function LembarUjianPage() {
             finalSoalList = limitedRandom;
           }
         } else {
-          // Tanpa acak soal: urutkan berurutan
           finalSoalList = [...filteredSoalList].sort((a, b) => {
             if (a.created_at && b.created_at) {
               return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -461,7 +504,9 @@ export default function LembarUjianPage() {
           });
         }
 
-        setListSoalUjian(finalSoalList.slice(0, jadwal.jumlah_soal_tampil));
+        const slicedSoal = finalSoalList.slice(0, jadwal.jumlah_soal_tampil);
+        setListSoalUjian(slicedSoal);
+        listSoalUjianRef.current = slicedSoal;
       } catch (err) {
         console.error(err);
         setErrorMsg('Gagal terhubung dengan server database.');
@@ -490,7 +535,6 @@ export default function LembarUjianPage() {
     }, 500);
   };
 
-  // Timer Hitung Mundur
   useEffect(() => {
     if (!detailJadwal || !hasAgreedRules) return;
 
@@ -523,7 +567,7 @@ export default function LembarUjianPage() {
       await supabase.from('nilai_siswa').upsert({
         id_siswa: siswaId,
         id_jadwal: idJadwal,
-        nama_siswa: namaSiswa || localStorage.getItem('session_siswa_nama') || 'Siswa',
+        nama_siswa: namaSiswaRef.current || localStorage.getItem('session_siswa_nama') || 'Siswa',
         kelas: localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM',
         jumlah_pelanggaran: count,
       }, { onConflict: 'id_siswa,id_jadwal' });
@@ -532,7 +576,6 @@ export default function LembarUjianPage() {
     }
   };
 
-  // Anti-Cheat Guard
   useEffect(() => {
     if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
 
@@ -596,20 +639,13 @@ export default function LembarUjianPage() {
     isInteractingRef.current = true;
     const terlewat: number[] = [];
     listSoalUjian.forEach((soal, index) => {
-      if (!jawabanSiswa[soal.id]) {
+      if (!jawabanSiswaRef.current[soal.id]) {
         terlewat.push(index + 1);
       }
     });
     setSoalBelumDijawab(terlewat);
     setShowConfirmSubmit(true);
     setTimeout(() => { isInteractingRef.current = false; }, 500);
-  };
-
-  // PEMILIHAN JAWABAN (OPTIMAL: HANYA SIMPAN DI LOCAL DB HP SISWA)
-  const handlePilihJawaban = (idSoal: string, hurufOpsi: string) => {
-    const updatedJawaban = { ...jawabanSiswa, [idSoal]: hurufOpsi };
-    setJawabanSiswa(updatedJawaban);
-    localStorage.setItem(`backup_jawaban_${idJadwal}`, JSON.stringify(updatedJawaban));
   };
 
   const paksaKembaliFullScreen = async () => {
@@ -626,8 +662,9 @@ export default function LembarUjianPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-xs font-bold text-slate-400 tracking-widest uppercase animate-pulse">
-        ⏳ Menyiapkan Ujian...
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-4">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-black text-slate-800 tracking-wide">{loadingText}</p>
       </div>
     );
   }
@@ -648,7 +685,6 @@ export default function LembarUjianPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       
-      {/* POP-UP ATURAN UJIAN */}
       {!hasAgreedRules && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
@@ -684,7 +720,6 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* INDIKATOR PELANGGARAN */}
       {pelanggaranCount > 0 && (
         <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-xl font-bold flex justify-between items-center shadow-sm">
           <span>⚠️ Terdeteksi keluar dari layar ujian!</span>
@@ -693,20 +728,25 @@ export default function LembarUjianPage() {
       )}
 
       <div className="max-w-5xl mx-auto space-y-4">
-        {/* Header Informasi */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center text-xs">
-          <div>
-            <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
-              {detailJadwal?.mapel ? detailJadwal.mapel.nama_mapel : 'Mata Pelajaran'}
-            </p>
-            <p className="text-slate-400 mt-0.5">Siswa: {namaSiswa || 'Siswa'}</p>
+          <div className="flex items-center gap-3">
+            <div>
+              <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
+                {detailJadwal?.mapel ? detailJadwal.mapel.nama_mapel : 'Mata Pelajaran'}
+              </p>
+              <p className="text-slate-400 mt-0.5">Siswa: {namaSiswa || 'Siswa'}</p>
+            </div>
+            {isSyncing && (
+              <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded font-bold animate-pulse">
+                🔄 Menyimpan...
+              </span>
+            )}
           </div>
           <div className="font-mono font-black px-4 py-2 bg-slate-900 border border-slate-900 text-amber-400 rounded-xl text-sm tracking-wider shadow-sm">
             ⏱️ {`${jam}:${menit}:${detik}`}
           </div>
         </div>
 
-        {/* Kotak Soal */}
         {soalSaatIni && (
           <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
             <div className="space-y-3">
@@ -717,21 +757,28 @@ export default function LembarUjianPage() {
                 {soalSaatIni.pertanyaan}
               </p>
 
-              {soalSaatIni.gambar_soal && (
+              {soalSaatIni.gambar_soal && soalSaatIni.gambar_soal.trim() !== '' && (
                 <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 inline-block">
-                  <img src={soalSaatIni.gambar_soal} alt="Gambar Soal" className="max-h-60 object-contain rounded pointer-events-none" />
+                  <img
+                    src={soalSaatIni.gambar_soal}
+                    alt="Lampiran Gambar Soal"
+                    className="max-h-60 object-contain rounded pointer-events-none select-none"
+                    onContextMenu={(e) => e.preventDefault()}
+                  />
                 </div>
               )}
             </div>
 
-            {/* Opsi Jawaban */}
             <div className="grid grid-cols-1 gap-3 text-xs">
               {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
                 const textKey = `opsi_${letter.toLowerCase()}` as keyof Soal;
                 const imgKey = `gambar_${letter.toLowerCase()}` as keyof Soal;
 
-                const textOpsi = soalSaatIni[textKey] as string | undefined;
-                const imgOpsi = soalSaatIni[imgKey] as string | undefined;
+                const rawText = soalSaatIni[textKey] as string | undefined;
+                const rawImg = soalSaatIni[imgKey] as string | undefined;
+
+                const textOpsi = rawText ? rawText.trim() : '';
+                const imgOpsi = rawImg ? rawImg.trim() : '';
 
                 if (!textOpsi && !imgOpsi) return null;
                 const terpilih = jawabanSiswa[soalSaatIni.id] === letter;
@@ -757,7 +804,12 @@ export default function LembarUjianPage() {
 
                     {imgOpsi && (
                       <div className="mt-1 ml-10 p-1.5 bg-white rounded-lg border border-slate-200 inline-block max-w-xs overflow-hidden">
-                        <img src={imgOpsi} alt={`Opsi ${letter}`} className="max-h-32 object-contain rounded-md pointer-events-none" />
+                        <img
+                          src={imgOpsi}
+                          alt={`Opsi ${letter}`}
+                          className="max-h-32 object-contain rounded-md pointer-events-none select-none"
+                          onContextMenu={(e) => e.preventDefault()}
+                        />
                       </div>
                     )}
                   </button>
@@ -765,7 +817,6 @@ export default function LembarUjianPage() {
               })}
             </div>
 
-            {/* Navigasi Soal */}
             <div className="flex justify-between items-center pt-4 border-t border-slate-100">
               <button
                 disabled={nomorAktif === 0}
@@ -796,7 +847,6 @@ export default function LembarUjianPage() {
         )}
       </div>
 
-      {/* Navigasi Nomor Soal Floating */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
         {isNavOpen && (
           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
@@ -825,7 +875,6 @@ export default function LembarUjianPage() {
         </button>
       </div>
 
-      {/* POPUP SUBMIT */}
       {showConfirmSubmit && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-md w-full space-y-5 shadow-2xl text-center">
@@ -871,7 +920,7 @@ export default function LembarUjianPage() {
               <button
                 onClick={eksekusiKirimJawabanAkhir}
                 disabled={submitting}
-                className="w-1/2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-3 rounded-xl text-xs uppercase tracking-wider shadow-sm transition"
+                className="w-1/2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-3 rounded-xl text-xs uppercase tracking-wider shadow-sm transition disabled:opacity-50"
               >
                 {submitting ? 'Mengirim...' : 'Ya, Kirim Sekarang'}
               </button>
@@ -880,7 +929,6 @@ export default function LembarUjianPage() {
         </div>
       )}
 
-      {/* POPUP PELANGGARAN */}
       {showPelanggaranPopup && (
         <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
