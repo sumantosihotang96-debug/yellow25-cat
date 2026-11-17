@@ -26,14 +26,18 @@ const normalize = (value?: string | null) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const classMatches = (studentClass: string, scheduleClass?: string | null) => {
-  const student = normalize(studentClass);
-  const target = normalize(scheduleClass);
+const isUniversal = (value: string) => ['', 'umum', 'semua', 'all'].includes(value);
 
-  if (!target || ['umum', 'semua', 'all'].includes(target)) return true;
-  if (!student) return false;
+const matchesClass = (studentClass: string, targetClass?: string | null) => {
+  const studentTokens = normalize(studentClass).split(' ').filter(Boolean);
+  const targetTokens = normalize(targetClass).split(' ').filter(Boolean);
 
-  return student === target || student.startsWith(`${target} `) || student.includes(target);
+  if (!targetTokens.length || isUniversal(targetTokens.join(' '))) return true;
+  if (!studentTokens.length) return false;
+
+  // Grade-only targets (X/XI/XII) match the grade token, not arbitrary substrings.
+  if (targetTokens.length === 1) return studentTokens[0] === targetTokens[0];
+  return targetTokens.every((token) => studentTokens.includes(token));
 };
 
 const getToday = () => {
@@ -53,10 +57,8 @@ export default function UjianPage() {
     let cancelled = false;
 
     const load = async () => {
-      if (typeof window === 'undefined') return;
-
       const studentId = localStorage.getItem('session_siswa_id');
-      if (!studentId) {
+      if (!studentId || ['null', 'undefined'].includes(studentId)) {
         router.replace('/login-siswa');
         return;
       }
@@ -69,11 +71,13 @@ export default function UjianPage() {
           .maybeSingle();
 
         if (profileError) throw profileError;
+        if (!profile) throw new Error('Profil siswa tidak ditemukan.');
 
-        const fullClass = profile?.kelas || localStorage.getItem('session_siswa_kelas_lengkap') || '';
-        const studentMajor = normalize(localStorage.getItem('session_siswa_jurusan')) || normalize(fullClass.split(/\s+/)[1]);
-        const religion = normalize(profile?.agama);
-        const elective = normalize(profile?.mapel_pilihan);
+        const fullClass = profile.kelas || localStorage.getItem('session_siswa_kelas_lengkap') || '';
+        const classTokens = normalize(fullClass).split(' ').filter(Boolean);
+        const studentMajor = normalize(localStorage.getItem('session_siswa_jurusan')) || classTokens[1] || '';
+        const religion = normalize(profile.agama);
+        const elective = normalize(profile.mapel_pilihan);
 
         const { data, error: scheduleError } = await supabase
           .from('jadwal_ujian')
@@ -83,33 +87,30 @@ export default function UjianPage() {
 
         if (scheduleError) throw scheduleError;
 
-        const matching = ((data ?? []) as ExamSchedule[]).filter((item) => {
+        const matching = ((data ?? []) as unknown as ExamSchedule[]).filter((item) => {
           const subject = item.mapel;
-          if (!subject) return false;
-          if (!classMatches(fullClass, subject.kelas)) return false;
+          if (!subject || !matchesClass(fullClass, subject.kelas)) return false;
 
           const targetMajor = normalize(subject.jurusan);
-          if (targetMajor && !['umum', 'semua', 'all'].includes(targetMajor)) {
-            const studentMatch = !!studentMajor && (studentMajor === targetMajor || normalize(fullClass).includes(targetMajor));
-            if (!studentMatch) return false;
+          if (!isUniversal(targetMajor)) {
+            const majorMatches = !!studentMajor && (
+              studentMajor === targetMajor || classTokens.includes(targetMajor)
+            );
+            if (!majorMatches) return false;
           }
 
           const subjectStatus = normalize(subject.status_mapel);
-          if (!subjectStatus || ['umum', 'semua', 'all'].includes(subjectStatus)) return true;
-
-          return subjectStatus === religion || subjectStatus === elective;
+          return isUniversal(subjectStatus) || subjectStatus === religion || subjectStatus === elective;
         });
 
         if (!cancelled) {
-          setStudentName(profile?.nama_lengkap || localStorage.getItem('session_siswa_nama') || 'Siswa');
+          setStudentName(profile.nama_lengkap || localStorage.getItem('session_siswa_nama') || 'Siswa');
           setStudentClass(fullClass || 'Belum diatur');
           setSchedules(matching);
         }
       } catch (loadError) {
         console.error('Gagal memuat jadwal ujian:', loadError);
-        if (!cancelled) {
-          setError('Jadwal ujian gagal dimuat. Silakan coba muat ulang halaman.');
-        }
+        if (!cancelled) setError('Jadwal ujian gagal dimuat. Silakan coba muat ulang halaman.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -142,9 +143,7 @@ export default function UjianPage() {
             <p className="mt-4 text-sm font-bold text-slate-600">Memuat jadwal dari server...</p>
           </div>
         ) : error ? (
-          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {error}
-          </div>
+          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
         ) : schedules.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 p-8 text-center shadow-sm">
             <div className="text-3xl">📚</div>
@@ -162,35 +161,21 @@ export default function UjianPage() {
                       <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Ujian terjadwal</p>
                       <h2 className="mt-2 text-xl font-black text-slate-900 md:text-2xl">{exam.mapel?.nama_mapel || 'Mata Pelajaran'}</h2>
                     </div>
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-700">
-                      Terjadwal
-                    </span>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-700">Terjadwal</span>
                   </div>
 
                   <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tanggal</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.tanggal_ujian}</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jam mulai</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.jam_mulai} WIB</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Durasi</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.durasi_menit} menit</p>
-                    </div>
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jumlah soal</p>
-                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.jumlah_soal_tampil} soal</p>
-                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tanggal</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.tanggal_ujian}</p></div>
+                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jam mulai</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.jam_mulai} WIB</p></div>
+                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Durasi</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.durasi_menit} menit</p></div>
+                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jumlah soal</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.jumlah_soal_tampil} soal</p></div>
                   </div>
 
                   <button
-                    onClick={() => router.push(`/siswa/ujian/${exam.id}`)}
+                    onClick={() => router.push('/siswa/dashboard')}
                     className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-black uppercase tracking-[0.12em] text-white shadow-lg transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200"
                   >
-                    Mulai Ujian
+                    Buka dashboard untuk token dan verifikasi lokasi
                   </button>
                 </div>
               </article>
