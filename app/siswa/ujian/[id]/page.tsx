@@ -21,6 +21,8 @@ interface Soal {
   gambar_e?: string | null;
   jawaban_benar: string;
   status_khusus?: string | null;
+  kelas_target?: string | null;
+  jurusan_target?: string | null;
   created_at?: string;
 }
 
@@ -41,6 +43,71 @@ interface DetailJadwal {
   } | null;
 }
 
+const normalizeCompareText = (value?: string | null) =>
+  (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildTokens = (value?: string | null): string[] => {
+  const normalized = normalizeCompareText(value);
+  if (!normalized) return [];
+  return normalized.split(' ').filter(Boolean);
+};
+
+const kelasMatches = (siswaKelas: string, soalKelasTarget?: string | null) => {
+  if (!soalKelasTarget) return true;
+
+  const targetNorm = normalizeCompareText(soalKelasTarget);
+  if (!targetNorm || ['umum', 'semua', 'all'].includes(targetNorm)) return true;
+
+  const siswaTokens = buildTokens(siswaKelas);
+  const targetTokens = buildTokens(soalKelasTarget);
+
+  if (!siswaTokens.length || !targetTokens.length) {
+    return normalizeCompareText(siswaKelas) === targetNorm;
+  }
+
+  return siswaTokens.some((token) => targetTokens.includes(token));
+};
+
+const jurusanMatches = (siswaJurusan: string, soalJurusanTarget?: string | null) => {
+  if (!soalJurusanTarget) return true;
+
+  const targetNorm = normalizeCompareText(soalJurusanTarget);
+  if (!targetNorm || ['umum', 'semua', 'all'].includes(targetNorm)) return true;
+
+  const siswaTokens = buildTokens(siswaJurusan);
+  const targetTokens = buildTokens(soalJurusanTarget);
+
+  if (!siswaTokens.length || !targetTokens.length) {
+    return normalizeCompareText(siswaJurusan) === targetNorm;
+  }
+
+  return siswaTokens.some((token) => targetTokens.includes(token));
+};
+
+const matchesSoalTarget = (
+  soalItem: Soal,
+  kelasUtuhSiswa: string,
+  jurusanTarget: string,
+) => {
+  const kelasTarget = soalItem.kelas_target ?? null;
+  const jurusanTargetSoal = soalItem.jurusan_target ?? null;
+
+  const kelasOk = !kelasTarget
+    ? true
+    : kelasMatches(kelasUtuhSiswa, kelasTarget);
+
+  const jurusanOk = !jurusanTargetSoal
+    ? true
+    : jurusanMatches(jurusanTarget, jurusanTargetSoal);
+
+  return kelasOk && jurusanOk;
+};
+
 const acakArray = <T,>(array: T[]): T[] => {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -56,8 +123,8 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
   const mapGrup = new Map<string, Soal[]>();
 
   daftarSoal.forEach((soal) => {
-    const keyGrup = soal.group_id && soal.group_id.trim() !== '' 
-      ? `GROUP_${soal.group_id.trim()}` 
+    const keyGrup = soal.group_id && soal.group_id.trim() !== ''
+      ? `GROUP_${soal.group_id.trim()}`
       : `SOLO_${soal.id}`;
 
     if (!mapGrup.has(keyGrup)) {
@@ -66,8 +133,8 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
     mapGrup.get(keyGrup)!.push(soal);
   });
 
-  mapGrup.forEach((listSoalInGroup, key) => {
-    if (key.startsWith('GROUP_')) {
+  mapGrup.forEach((listSoalInGroup) => {
+    if (listSoalInGroup.length > 1) {
       listSoalInGroup.sort((a, b) => {
         if (a.created_at && b.created_at) {
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -86,7 +153,7 @@ const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
 export default function LembarUjianPage() {
   const router = useRouter();
   const params = useParams();
-  
+
   const idJadwal = params?.id as string;
 
   const [namaSiswa, setNamaSiswa] = useState<string>('');
@@ -163,7 +230,6 @@ export default function LembarUjianPage() {
     };
   }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
 
-  // KONTROL FITUR 1: AUTO-SYNC / KIRIM JAWABAN KE SUPABASE SECARA BERKALA
   const kirimSatuJawabanKeSupabase = async (idSoal: string, hurufOpsi: string) => {
     const uuidSiswaLogin = localStorage.getItem('session_siswa_id');
     if (!uuidSiswaLogin || !idJadwal) return;
@@ -188,18 +254,15 @@ export default function LembarUjianPage() {
     const updatedJawaban = { ...jawabanSiswaRef.current, [idSoal]: hurufOpsi };
     setJawabanSiswa(updatedJawaban);
     jawabanSiswaRef.current = updatedJawaban;
-    
-    // Simpan Instan ke LocalStorage
+
     localStorage.setItem(`backup_jawaban_${idJadwal}`, JSON.stringify(updatedJawaban));
 
-    // Debounce Auto-Sync ke Supabase (Tunggu 2.5 Detik setelah klik terakhir)
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     syncTimeoutRef.current = setTimeout(() => {
       kirimSatuJawabanKeSupabase(idSoal, hurufOpsi);
     }, 2500);
   };
 
-  // SUBMIT FINAL / AKHIR
   const eksekusiKirimJawabanAkhir = useCallback(async () => {
     if (submittingRef.current) return;
     setSubmitting(true);
@@ -237,7 +300,6 @@ export default function LembarUjianPage() {
       const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
       const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
 
-      // Final Batch Sync
       const listPayloadJawaban = Object.entries(jawabanSiswaRef.current).map(([idSoal, hurufOpsi]) => ({
         id_siswa: uuidSiswaLogin,
         id_jadwal: idJadwal,
@@ -286,7 +348,6 @@ export default function LembarUjianPage() {
     }
   }, [idJadwal, router, lepasLayarTetapAktif]);
 
-  // INISIALISASI DATA SISWA DENGAN PENANGANAN LALU LINTAS TINGGI (STAGGERED DELAY)
   useEffect(() => {
     const inisialisasiSesiSiswa = async () => {
       if (typeof window === 'undefined' || !idJadwal) return;
@@ -297,9 +358,8 @@ export default function LembarUjianPage() {
       }
 
       try {
-        // KONTROL FITUR 2: DELAY ACAK UNTUK MENCEGAH SERVER CRASH SAAT LOGIN MASAL
         setLoadingText('Memasuki Antrean Server Ujian...');
-        const randomDelay = Math.floor(Math.random() * 2500) + 200; // Delay acak 0.2s - 2.7s
+        const randomDelay = Math.floor(Math.random() * 2500) + 200;
         await new Promise((res) => setTimeout(res, randomDelay));
 
         setLoadingText('Menyiapkan Lembar Ujian...');
@@ -353,7 +413,7 @@ export default function LembarUjianPage() {
             kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
             localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
 
-            const bagianKelas = kelasUtuhSiswa.split(/\s+/);
+            const bagianKelas = kelasUtuhSiswa.split(/[-\s]+/).filter(Boolean);
             tingkatKelas = bagianKelas[0] ? bagianKelas[0].trim() : '';
             jurusanTarget = bagianKelas[1] ? bagianKelas[1].trim() : '';
           }
@@ -362,17 +422,17 @@ export default function LembarUjianPage() {
         const { data: dataJadwal, error: errorJadwal } = await supabase
           .from('jadwal_ujian')
           .select(`
-            id, 
-            mapel_id, 
-            tanggal_ujian, 
-            jam_mulai, 
-            durasi_menit, 
-            jumlah_soal_tampil, 
+            id,
+            mapel_id,
+            tanggal_ujian,
+            jam_mulai,
+            durasi_menit,
+            jumlah_soal_tampil,
             mapel (
               id,
-              nama_mapel, 
-              kelas, 
-              jurusan, 
+              nama_mapel,
+              kelas,
+              jurusan,
               status_mapel,
               acak_soal
             )
@@ -393,31 +453,25 @@ export default function LembarUjianPage() {
 
         setDetailJadwal(jadwal);
 
-        let querySoal = supabase
+        const { data: dataSoal, error: errorSoal } = await supabase
           .from('soal')
           .select('*')
           .eq('id_mapel', String(jadwal.mapel_id).trim());
-
-        if (tingkatKelas) {
-          querySoal = querySoal.or(`kelas_target.eq."${tingkatKelas}",kelas_target.eq."${kelasUtuhSiswa}",kelas_target.eq.UMUM,kelas_target.is.null`);
-        }
-
-        if (jurusanTarget) {
-          querySoal = querySoal.or(`jurusan_target.eq."${jurusanTarget}",jurusan_target.eq.UMUM,jurusan_target.is.null`);
-        }
-
-        const { data: dataSoal, error: errorSoal } = await querySoal;
 
         if (errorSoal || !dataSoal || dataSoal.length === 0) {
           setErrorMsg(`⚠️ Tidak ditemukan butir soal yang cocok untuk kelas & jurusan Anda (${kelasUtuhSiswa}).`);
           return;
         }
 
+        const baseSoalList = dataSoal.filter((soalItem) =>
+          matchesSoalTarget(soalItem, kelasUtuhSiswa, jurusanTarget)
+        );
+
         const statusMapelJadwal = jadwal.mapel?.status_mapel?.trim().toLowerCase() || '';
-        let filteredSoalList: Soal[] = [];
+        let filteredSoalList: Soal[] = baseSoalList.length > 0 ? baseSoalList : dataSoal;
 
         if (statusMapelJadwal !== '') {
-          filteredSoalList = dataSoal.filter((soalItem) => {
+          filteredSoalList = filteredSoalList.filter((soalItem) => {
             const statusKhususSoal = soalItem.status_khusus?.trim().toLowerCase() || '';
 
             if (!statusKhususSoal || statusKhususSoal === 'umum') {
@@ -441,8 +495,6 @@ export default function LembarUjianPage() {
           if (filteredSoalList.length === 0) {
             filteredSoalList = dataSoal;
           }
-        } else {
-          filteredSoalList = dataSoal;
         }
 
         if (filteredSoalList.length === 0) {
@@ -450,7 +502,6 @@ export default function LembarUjianPage() {
           return;
         }
 
-        // Restore Riwayat Jawaban
         const localBackup = localStorage.getItem(`backup_jawaban_${idJadwal}`);
         let mappingJawaban: { [key: string]: string } = localBackup ? JSON.parse(localBackup) : {};
 
@@ -477,20 +528,24 @@ export default function LembarUjianPage() {
 
         if (jadwal.mapel?.acak_soal) {
           if (savedOrderJson) {
-            const savedOrderIds: string[] = JSON.parse(savedOrderJson);
-            const soalMap = new Map<string, Soal>(filteredSoalList.map((s) => [s.id, s]));
-            
-            finalSoalList = savedOrderIds
-              .map((id) => soalMap.get(id))
-              .filter((s): s is Soal => s !== undefined);
+            try {
+              const savedOrderIds: string[] = JSON.parse(savedOrderJson);
+              const soalMap = new Map<string, Soal>(filteredSoalList.map((s) => [s.id, s]));
 
-            if (finalSoalList.length < filteredSoalList.length) {
-              const missingSoal = filteredSoalList.filter((s) => !savedOrderIds.includes(s.id));
-              finalSoalList = [...finalSoalList, ...missingSoal];
+              finalSoalList = savedOrderIds
+                .map((id) => soalMap.get(id))
+                .filter((s): s is Soal => s !== undefined);
+
+              if (finalSoalList.length < filteredSoalList.length) {
+                const missingSoal = filteredSoalList.filter((s) => !savedOrderIds.includes(s.id));
+                finalSoalList = [...finalSoalList, ...missingSoal];
+              }
+            } catch {
+              finalSoalList = acakSoalGrup(filteredSoalList);
             }
           } else {
             const randomizedGrup = acakSoalGrup(filteredSoalList);
-            const limitedRandom = randomizedGrup.slice(0, jadwal.jumlah_soal_tampil);
+            const limitedRandom = randomizedGrup.slice(0, Math.min(jadwal.jumlah_soal_tampil, randomizedGrup.length));
             const orderIds = limitedRandom.map((s) => s.id);
             localStorage.setItem(storageKeyUrutan, JSON.stringify(orderIds));
             finalSoalList = limitedRandom;
@@ -504,7 +559,7 @@ export default function LembarUjianPage() {
           });
         }
 
-        const slicedSoal = finalSoalList.slice(0, jadwal.jumlah_soal_tampil);
+        const slicedSoal = finalSoalList.slice(0, Math.min(jadwal.jumlah_soal_tampil, finalSoalList.length));
         setListSoalUjian(slicedSoal);
         listSoalUjianRef.current = slicedSoal;
       } catch (err) {
@@ -662,7 +717,7 @@ export default function LembarUjianPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center space-y-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 flex flex-col items-center justify-center p-6 text-center space-y-4">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         <p className="text-sm font-black text-slate-800 tracking-wide">{loadingText}</p>
       </div>
@@ -671,7 +726,7 @@ export default function LembarUjianPage() {
 
   if (errorMsg) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-xs font-bold text-red-500 text-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-rose-50 to-red-50 flex items-center justify-center text-xs font-bold text-red-500 text-center p-4">
         {errorMsg}
       </div>
     );
@@ -683,11 +738,10 @@ export default function LembarUjianPage() {
   const detik = ((sisaDetik || 0) % 60).toString().padStart(2, '0');
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
-      
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
       {!hasAgreedRules && (
-        <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-2xl max-w-lg w-full space-y-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-3xl max-w-lg w-full space-y-5 shadow-[0_25px_80px_-24px_rgba(15,23,42,0.7)]">
             <div className="text-center space-y-2">
               <span className="text-4xl block">🛡️</span>
               <h2 className="text-lg font-black text-slate-900 tracking-wide">
@@ -701,7 +755,7 @@ export default function LembarUjianPage() {
               </p>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-3 leading-relaxed text-slate-700">
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs space-y-3 leading-relaxed text-slate-700">
               <p className="font-bold text-slate-900">Harap diperhatikan aturan keamanan berikut:</p>
               <ul className="list-disc pl-4 space-y-1.5 text-slate-600">
                 <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong>.</li>
@@ -712,7 +766,7 @@ export default function LembarUjianPage() {
 
             <button
               onClick={handleMulaiUjianUlasan}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-3.5 rounded-xl text-xs uppercase tracking-widest shadow-lg transition duration-200"
+              className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold p-3.5 rounded-2xl text-xs uppercase tracking-widest shadow-lg transition duration-200"
             >
               Saya Mengerti & Mulai Ujian 🚀
             </button>
@@ -721,14 +775,14 @@ export default function LembarUjianPage() {
       )}
 
       {pelanggaranCount > 0 && (
-        <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-xl font-bold flex justify-between items-center shadow-sm">
+        <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-2xl font-bold flex justify-between items-center shadow-sm">
           <span>⚠️ Terdeteksi keluar dari layar ujian!</span>
           <span>Pelanggaran: {pelanggaranCount} / {maxPelanggaran}</span>
         </div>
       )}
 
       <div className="max-w-5xl mx-auto space-y-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center text-xs">
+        <div className="bg-white/85 backdrop-blur-xl p-4 rounded-2xl border border-slate-200/80 shadow-[0_18px_50px_-26px_rgba(79,70,229,0.55)] flex justify-between items-center text-xs">
           <div className="flex items-center gap-3">
             <div>
               <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
@@ -737,7 +791,7 @@ export default function LembarUjianPage() {
               <p className="text-slate-400 mt-0.5">Siswa: {namaSiswa || 'Siswa'}</p>
             </div>
             {isSyncing && (
-              <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded font-bold animate-pulse">
+              <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold animate-pulse">
                 🔄 Menyimpan...
               </span>
             )}
@@ -748,9 +802,9 @@ export default function LembarUjianPage() {
         </div>
 
         {soalSaatIni && (
-          <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="bg-white/90 backdrop-blur-xl p-6 md:p-8 rounded-[28px] border border-slate-200/80 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.7)] space-y-6">
             <div className="space-y-3">
-              <span className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-2.5 py-1 rounded border border-indigo-100 uppercase tracking-wider">
+              <span className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wider">
                 Soal {nomorAktif + 1} dari {listSoalUjian.length}
               </span>
               <p className="text-sm md:text-base font-semibold text-slate-800 leading-relaxed">
@@ -758,11 +812,11 @@ export default function LembarUjianPage() {
               </p>
 
               {soalSaatIni.gambar_soal && soalSaatIni.gambar_soal.trim() !== '' && (
-                <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 inline-block">
+                <div className="p-2 bg-slate-50 rounded-2xl border border-slate-200 inline-block">
                   <img
                     src={soalSaatIni.gambar_soal}
                     alt="Lampiran Gambar Soal"
-                    className="max-h-60 object-contain rounded pointer-events-none select-none"
+                    className="max-h-60 object-contain rounded-xl pointer-events-none select-none"
                     onContextMenu={(e) => e.preventDefault()}
                   />
                 </div>
@@ -787,23 +841,23 @@ export default function LembarUjianPage() {
                   <button
                     key={letter}
                     onClick={() => handlePilihJawaban(soalSaatIni.id, letter)}
-                    className={`w-full text-left p-4 rounded-xl border transition-all flex flex-col gap-3 items-start ${
+                    className={`w-full text-left p-4 rounded-2xl border transition-all flex flex-col gap-3 items-start ${
                       terpilih
                         ? 'bg-indigo-50 border-indigo-500 text-indigo-900 font-bold shadow-sm'
                         : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className={`w-7 h-7 flex items-center justify-center rounded-lg font-black text-xs shrink-0 ${
+                    <div className="flex items-center gap-3 w-full">
+                      <span className={`w-7 h-7 flex items-center justify-center rounded-xl font-black text-xs shrink-0 ${
                         terpilih ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-400'
                       }`}>
                         {letter}
                       </span>
-                      <span className="text-sm font-medium">{textOpsi || '-'}</span>
+                      <span className="text-sm font-medium break-words">{textOpsi || '-'}</span>
                     </div>
 
                     {imgOpsi && (
-                      <div className="mt-1 ml-10 p-1.5 bg-white rounded-lg border border-slate-200 inline-block max-w-xs overflow-hidden">
+                      <div className="mt-1 ml-10 p-1.5 bg-white rounded-xl border border-slate-200 inline-block max-w-xs overflow-hidden">
                         <img
                           src={imgOpsi}
                           alt={`Opsi ${letter}`}
@@ -849,7 +903,7 @@ export default function LembarUjianPage() {
 
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
         {isNavOpen && (
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
+          <div className="bg-white/95 p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
             {listSoalUjian.map((s, idx) => (
               <button
                 key={s.id}
@@ -869,7 +923,7 @@ export default function LembarUjianPage() {
         )}
         <button
           onClick={() => setIsNavOpen(!isNavOpen)}
-          className="w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center justify-center shadow-lg text-lg"
+          className="w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold flex items-center justify-center shadow-[0_18px_40px_-14px_rgba(79,70,229,0.9)] text-lg"
         >
           {isNavOpen ? '✕' : '☰'}
         </button>
