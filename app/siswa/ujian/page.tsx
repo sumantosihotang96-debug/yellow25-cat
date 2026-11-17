@@ -19,14 +19,21 @@ interface ExamSchedule {
 }
 
 const normalize = (value?: string | null) =>
-  (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const classMatches = (studentClass: string, scheduleClass?: string | null) => {
   const student = normalize(studentClass);
   const target = normalize(scheduleClass);
+
   if (!target || ['umum', 'semua', 'all'].includes(target)) return true;
   if (!student) return false;
-  return student === target || student.startsWith(`${target} `);
+
+  return student === target || student.startsWith(`${target} `) || student.includes(target);
 };
 
 const getToday = () => {
@@ -46,6 +53,8 @@ export default function UjianPage() {
     let cancelled = false;
 
     const load = async () => {
+      if (typeof window === 'undefined') return;
+
       const studentId = localStorage.getItem('session_siswa_id');
       if (!studentId) {
         router.replace('/login-siswa');
@@ -58,11 +67,11 @@ export default function UjianPage() {
           .select('nama_lengkap, kelas, agama, mapel_pilihan')
           .eq('id', studentId)
           .maybeSingle();
+
         if (profileError) throw profileError;
 
         const fullClass = profile?.kelas || localStorage.getItem('session_siswa_kelas_lengkap') || '';
-        const parts = normalize(fullClass).split(' ').filter(Boolean);
-        const studentMajor = normalize(localStorage.getItem('session_siswa_jurusan')) || parts[1] || '';
+        const studentMajor = normalize(localStorage.getItem('session_siswa_jurusan')) || normalize(fullClass.split(/\s+/)[1]);
         const religion = normalize(profile?.agama);
         const elective = normalize(profile?.mapel_pilihan);
 
@@ -71,20 +80,24 @@ export default function UjianPage() {
           .select('id, tanggal_ujian, jam_mulai, durasi_menit, jumlah_soal_tampil, mapel(nama_mapel, kelas, jurusan, status_mapel)')
           .eq('tanggal_ujian', getToday())
           .order('jam_mulai', { ascending: true });
+
         if (scheduleError) throw scheduleError;
 
-        const matching = ((data ?? []) as unknown as ExamSchedule[]).filter((item) => {
+        const matching = ((data ?? []) as ExamSchedule[]).filter((item) => {
           const subject = item.mapel;
           if (!subject) return false;
           if (!classMatches(fullClass, subject.kelas)) return false;
 
           const targetMajor = normalize(subject.jurusan);
           if (targetMajor && !['umum', 'semua', 'all'].includes(targetMajor)) {
-            if (!studentMajor || (studentMajor !== targetMajor && !normalize(fullClass).split(' ').includes(targetMajor))) return false;
+            const studentMatch = !!studentMajor && (studentMajor === targetMajor || normalize(fullClass).includes(targetMajor));
+            if (!studentMatch) return false;
           }
 
-          const specialStatus = normalize(subject.status_mapel);
-          return !specialStatus || ['umum', 'semua', 'all'].includes(specialStatus) || specialStatus === religion || specialStatus === elective;
+          const subjectStatus = normalize(subject.status_mapel);
+          if (!subjectStatus || ['umum', 'semua', 'all'].includes(subjectStatus)) return true;
+
+          return subjectStatus === religion || subjectStatus === elective;
         });
 
         if (!cancelled) {
@@ -94,14 +107,18 @@ export default function UjianPage() {
         }
       } catch (loadError) {
         console.error('Gagal memuat jadwal ujian:', loadError);
-        if (!cancelled) setError('Jadwal ujian gagal dimuat. Silakan coba muat ulang halaman.');
+        if (!cancelled) {
+          setError('Jadwal ujian gagal dimuat. Silakan coba muat ulang halaman.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
 
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   return (
@@ -125,7 +142,9 @@ export default function UjianPage() {
             <p className="mt-4 text-sm font-bold text-slate-600">Memuat jadwal dari server...</p>
           </div>
         ) : error ? (
-          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
+          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+            {error}
+          </div>
         ) : schedules.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-slate-300 bg-white/80 p-8 text-center shadow-sm">
             <div className="text-3xl">📚</div>
@@ -143,19 +162,35 @@ export default function UjianPage() {
                       <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Ujian terjadwal</p>
                       <h2 className="mt-2 text-xl font-black text-slate-900 md:text-2xl">{exam.mapel?.nama_mapel || 'Mata Pelajaran'}</h2>
                     </div>
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-700">Terjadwal</span>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[10px] font-bold text-emerald-700">
+                      Terjadwal
+                    </span>
                   </div>
+
                   <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tanggal</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.tanggal_ujian}</p></div>
-                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jam mulai</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.jam_mulai} WIB</p></div>
-                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Durasi</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.durasi_menit} menit</p></div>
-                    <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jumlah soal</p><p className="mt-1 text-sm font-bold text-slate-800">{exam.jumlah_soal_tampil} soal</p></div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Tanggal</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.tanggal_ujian}</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jam mulai</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.jam_mulai} WIB</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Durasi</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.durasi_menit} menit</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Jumlah soal</p>
+                      <p className="mt-1 text-sm font-bold text-slate-800">{exam.jumlah_soal_tampil} soal</p>
+                    </div>
                   </div>
+
                   <button
-                    onClick={() => router.push('/siswa/dashboard')}
+                    onClick={() => router.push(`/siswa/ujian/${exam.id}`)}
                     className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-sm font-black uppercase tracking-[0.12em] text-white shadow-lg transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200"
                   >
-                    Buka dashboard untuk mulai dengan token & verifikasi lokasi
+                    Mulai Ujian
                   </button>
                 </div>
               </article>
