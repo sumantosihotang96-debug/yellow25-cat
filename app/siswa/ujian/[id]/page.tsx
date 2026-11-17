@@ -1,18 +1,19 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase';
 
-interface Soal {
+interface Question {
   id: string;
   group_id?: string | null;
   pertanyaan: string;
   gambar_soal?: string | null;
-  opsi_a: string;
-  opsi_b: string;
-  opsi_c: string;
-  opsi_d: string;
+  opsi_a?: string | null;
+  opsi_b?: string | null;
+  opsi_c?: string | null;
+  opsi_d?: string | null;
   opsi_e?: string | null;
   gambar_a?: string | null;
   gambar_b?: string | null;
@@ -23,16 +24,17 @@ interface Soal {
   status_khusus?: string | null;
   kelas_target?: string | null;
   jurusan_target?: string | null;
-  created_at?: string;
+  created_at?: string | null;
 }
 
-interface DetailJadwal {
+interface ExamSchedule {
   id: string;
   mapel_id: string;
   tanggal_ujian: string;
   jam_mulai: string;
   durasi_menit: number;
   jumlah_soal_tampil: number;
+  token_ujian: string;
   mapel: {
     id: string;
     nama_mapel: string;
@@ -43,966 +45,658 @@ interface DetailJadwal {
   } | null;
 }
 
-const normalizeCompareText = (value?: string | null) =>
-  (value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const normalize = (value?: string | null) =>
+  (value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-const buildTokens = (value?: string | null): string[] => {
-  const normalized = normalizeCompareText(value);
-  if (!normalized) return [];
-  return normalized.split(' ').filter(Boolean);
-};
+const isUniversal = (value: string) => ['', 'umum', 'semua', 'all'].includes(value);
 
-const kelasMatches = (siswaKelas: string, soalKelasTarget?: string | null) => {
-  if (!soalKelasTarget) return true;
+function classMatches(studentClass: string, targetClass?: string | null) {
+  const student = normalize(studentClass).split(' ').filter(Boolean);
+  const target = normalize(targetClass).split(' ').filter(Boolean);
+  if (!target.length || isUniversal(target.join(' '))) return true;
+  if (!student.length) return false;
+  // Class targets in the question bank are commonly grade-only (X/XI/XII).
+  if (target.length === 1) return student[0] === target[0] || student.includes(target[0]);
+  return target.every((part) => student.includes(part));
+}
 
-  const targetNorm = normalizeCompareText(soalKelasTarget);
-  if (!targetNorm || ['umum', 'semua', 'all'].includes(targetNorm)) return true;
+function majorMatches(studentMajor: string, studentClass: string, targetMajor?: string | null) {
+  const target = normalize(targetMajor);
+  if (isUniversal(target)) return true;
+  const major = normalize(studentMajor);
+  const classTokens = normalize(studentClass).split(' ').filter(Boolean);
+  return !!target && (major === target || classTokens.includes(target));
+}
 
-  const siswaTokens = buildTokens(siswaKelas);
-  const targetTokens = buildTokens(soalKelasTarget);
+function questionMatchesStudent(question: Question, studentClass: string, studentMajor: string) {
+  return classMatches(studentClass, question.kelas_target) &&
+    majorMatches(studentMajor, studentClass, question.jurusan_target);
+}
 
-  if (!siswaTokens.length || !targetTokens.length) {
-    return normalizeCompareText(siswaKelas) === targetNorm;
+function groupQuestions(questions: Question[]): Question[][] {
+  const groups = new Map<string, Question[]>();
+  for (const question of questions) {
+    const groupKey = question.group_id?.trim() ? `group:${question.group_id.trim()}` : `single:${question.id}`;
+    const group = groups.get(groupKey) ?? [];
+    group.push(question);
+    groups.set(groupKey, group);
   }
-
-  return siswaTokens.some((token) => targetTokens.includes(token));
-};
-
-const jurusanMatches = (siswaJurusan: string, soalJurusanTarget?: string | null) => {
-  if (!soalJurusanTarget) return true;
-
-  const targetNorm = normalizeCompareText(soalJurusanTarget);
-  if (!targetNorm || ['umum', 'semua', 'all'].includes(targetNorm)) return true;
-
-  const siswaTokens = buildTokens(siswaJurusan);
-  const targetTokens = buildTokens(soalJurusanTarget);
-
-  if (!siswaTokens.length || !targetTokens.length) {
-    return normalizeCompareText(siswaJurusan) === targetNorm;
+  for (const group of groups.values()) {
+    group.sort((a, b) => {
+      if (a.created_at && b.created_at) return a.created_at.localeCompare(b.created_at);
+      return a.id.localeCompare(b.id);
+    });
   }
+  return [...groups.values()];
+}
 
-  return siswaTokens.some((token) => targetTokens.includes(token));
-};
-
-const matchesSoalTarget = (
-  soalItem: Soal,
-  kelasUtuhSiswa: string,
-  jurusanTarget: string,
-) => {
-  const kelasTarget = soalItem.kelas_target ?? null;
-  const jurusanTargetSoal = soalItem.jurusan_target ?? null;
-
-  const kelasOk = !kelasTarget
-    ? true
-    : kelasMatches(kelasUtuhSiswa, kelasTarget);
-
-  const jurusanOk = !jurusanTargetSoal
-    ? true
-    : jurusanMatches(jurusanTarget, jurusanTargetSoal);
-
-  return kelasOk && jurusanOk;
-};
-
-const acakArray = <T,>(array: T[]): T[] => {
-  const arr = [...array];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+function shuffle<T>(values: T[]): T[] {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
   }
-  return arr;
-};
+  return result;
+}
 
-const acakSoalGrup = (daftarSoal: Soal[]): Soal[] => {
-  if (!daftarSoal || daftarSoal.length === 0) return [];
+// Keep related question groups intact instead of cutting a stimulus group at the quota boundary.
+function selectWholeGroups(groups: Question[][], quota: number): Question[] {
+  const result: Question[] = [];
+  for (const group of groups) {
+    if (result.length >= quota) break;
+    result.push(...group);
+  }
+  return result;
+}
 
-  const mapGrup = new Map<string, Soal[]>();
+function getExamTimes(exam: ExamSchedule) {
+  const time = exam.jam_mulai.trim().replace(/\./g, ':');
+  const normalizedTime = time.split(':').length === 2 ? `${time}:00` : time;
+  const start = new Date(`${exam.tanggal_ujian.trim()}T${normalizedTime}+07:00`).getTime();
+  return { start, end: start + Number(exam.durasi_menit) * 60_000 };
+}
 
-  daftarSoal.forEach((soal) => {
-    const keyGrup = soal.group_id && soal.group_id.trim() !== ''
-      ? `GROUP_${soal.group_id.trim()}`
-      : `SOLO_${soal.id}`;
-
-    if (!mapGrup.has(keyGrup)) {
-      mapGrup.set(keyGrup, []);
-    }
-    mapGrup.get(keyGrup)!.push(soal);
-  });
-
-  mapGrup.forEach((listSoalInGroup) => {
-    if (listSoalInGroup.length > 1) {
-      listSoalInGroup.sort((a, b) => {
-        if (a.created_at && b.created_at) {
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        }
-        return a.id.localeCompare(b.id);
-      });
-    }
-  });
-
-  const daftarSeluruhGrup: Soal[][] = Array.from(mapGrup.values());
-  const grupTeracak = acakArray(daftarSeluruhGrup);
-
-  return grupTeracak.flat();
-};
+function readJson<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function LembarUjianPage() {
   const router = useRouter();
-  const params = useParams();
+  const params = useParams<{ id: string }>();
+  const scheduleId = params?.id;
 
-  const idJadwal = params?.id as string;
-
-  const [namaSiswa, setNamaSiswa] = useState<string>('');
-  const [detailJadwal, setDetailJadwal] = useState<DetailJadwal | null>(null);
-  const [listSoalUjian, setListSoalUjian] = useState<Soal[]>([]);
-  const [jawabanSiswa, setJawabanSiswa] = useState<{ [key: string]: string }>({});
-
+  const [studentName, setStudentName] = useState('Siswa');
+  const [exam, setExam] = useState<ExamSchedule | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [loadingText, setLoadingText] = useState('Menyiapkan Ujian...');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [nomorAktif, setNomorAktif] = useState(0);
-  const [sisaDetik, setSisaDetik] = useState<number | null>(null);
-  const [isNavOpen, setIsNavOpen] = useState(false);
+  const [error, setError] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [unanswered, setUnanswered] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [maxViolations, setMaxViolations] = useState(3);
+  const [violations, setViolations] = useState(0);
+  const [violationOpen, setViolationOpen] = useState(false);
 
-  const [maxPelanggaran, setMaxPelanggaran] = useState<number>(3);
-  const [hasAgreedRules, setHasAgreedRules] = useState(false);
-
-  const [pelanggaranCount, setPelanggaranCount] = useState<number>(0);
-  const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
-  const [showPelanggaranPopup, setShowPelanggaranPopup] = useState(false);
-  const [isForceSubmitted, setIsForceSubmitted] = useState(false);
-  const [soalBelumDijawab, setSoalBelumDijawab] = useState<number[]>([]);
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  const isInteractingRef = useRef(false);
+  const answersRef = useRef<Record<string, string>>({});
+  const questionsRef = useRef<Question[]>([]);
+  const studentNameRef = useRef(studentName);
+  const submittingRef = useRef(false);
+  const interactionRef = useRef(false);
+  const violationCountRef = useRef(0);
+  const debounceTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const jawabanSiswaRef = useRef<{ [key: string]: string }>({});
-  jawabanSiswaRef.current = jawabanSiswa;
+  const storageKey = (studentId: string) => `backup_jawaban_${scheduleId}_${studentId}`;
+  const orderKey = (studentId: string) => `urutan_soal_${scheduleId}_${studentId}`;
 
-  const namaSiswaRef = useRef<string>(namaSiswa);
-  namaSiswaRef.current = namaSiswa;
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+  useEffect(() => { questionsRef.current = questions; }, [questions]);
+  useEffect(() => { studentNameRef.current = studentName; }, [studentName]);
+  useEffect(() => { violationCountRef.current = violations; }, [violations]);
 
-  const submittingRef = useRef<boolean>(submitting);
-  submittingRef.current = submitting;
-
-  const listSoalUjianRef = useRef<Soal[]>(listSoalUjian);
-  listSoalUjianRef.current = listSoalUjian;
-
-  const mintaLayarTetapAktif = useCallback(async () => {
+  const releaseWakeLock = useCallback(async () => {
+    if (!wakeLockRef.current) return;
     try {
-      if ('wakeLock' in navigator) {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-      }
-    } catch (err) {
-      console.log('Wake Lock tidak didukung:', err);
+      await wakeLockRef.current.release();
+    } catch (releaseError) {
+      console.warn('Tidak dapat melepas wake lock:', releaseError);
+    } finally {
+      wakeLockRef.current = null;
     }
   }, []);
 
-  const lepasLayarTetapAktif = useCallback(async () => {
-    if (wakeLockRef.current) {
-      try {
-        await wakeLockRef.current.release();
-        wakeLockRef.current = null;
-      } catch (err) {
-        console.log('Gagal melepas wake lock:', err);
-      }
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if ('wakeLock' in navigator) wakeLockRef.current = await navigator.wakeLock.request('screen');
+    } catch (wakeError) {
+      console.info('Wake lock tidak tersedia pada perangkat ini:', wakeError);
     }
   }, []);
+
+  const syncAnswer = useCallback(async (studentId: string, questionId: string, answer: string) => {
+    const { error: syncError } = await supabase.from('jawaban_siswa').upsert({
+      id_siswa: studentId,
+      id_jadwal: scheduleId,
+      id_soal: questionId,
+      jawaban_terpilih: answer,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id_siswa,id_jadwal,id_soal' });
+    if (syncError) throw syncError;
+  }, [scheduleId]);
+
+  const submitExam = useCallback(async () => {
+    if (submittingRef.current || !exam || questionsRef.current.length === 0) return;
+
+    const studentId = localStorage.getItem('session_siswa_id');
+    if (!studentId) {
+      router.replace('/login-siswa');
+      return;
+    }
+
+    submittingRef.current = true;
+    setSubmitting(true);
+    setSaveError('');
+    setSubmitOpen(false);
+
+    try {
+      // Flush pending debounce writes and persist all answers before saving the score.
+      for (const timer of debounceTimersRef.current.values()) clearTimeout(timer);
+      debounceTimersRef.current.clear();
+
+      const answerMap = answersRef.current;
+      const answerRows = questionsRef.current
+        .filter((question) => answerMap[question.id])
+        .map((question) => ({
+          id_siswa: studentId,
+          id_jadwal: scheduleId,
+          id_soal: question.id,
+          jawaban_terpilih: answerMap[question.id],
+          updated_at: new Date().toISOString(),
+        }));
+
+      if (answerRows.length) {
+        const { error: answerError } = await supabase.from('jawaban_siswa').upsert(answerRows, {
+          onConflict: 'id_siswa,id_jadwal,id_soal',
+        });
+        if (answerError) throw answerError;
+      }
+
+      let correct = 0;
+      for (const question of questionsRef.current) {
+        const selected = answerMap[question.id]?.trim().toUpperCase();
+        if (selected && selected === question.jawaban_benar?.trim().toUpperCase()) correct++;
+      }
+
+      const { error: scoreError } = await supabase.from('nilai_siswa').upsert({
+        id_siswa: studentId,
+        id_jadwal: scheduleId,
+        nama_siswa: studentNameRef.current || localStorage.getItem('session_siswa_nama') || 'Siswa',
+        kelas: localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM',
+        jumlah_benar: correct,
+        jumlah_salah: questionsRef.current.length - correct,
+        nilai: Math.round((correct / questionsRef.current.length) * 100),
+        jumlah_pelanggaran: violationCountRef.current,
+        created_at: new Date().toISOString(),
+      }, { onConflict: 'id_siswa,id_jadwal' });
+      if (scoreError) throw scoreError;
+
+      localStorage.removeItem(storageKey(studentId));
+      localStorage.removeItem(`pelanggaran_${scheduleId}_${studentId}`);
+      localStorage.removeItem(orderKey(studentId));
+      localStorage.removeItem('session_token_aktif');
+      await releaseWakeLock();
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+      router.replace('/siswa/dashboard');
+    } catch (submitError) {
+      console.error('Gagal mengirim jawaban ujian:', submitError);
+      setSaveError('Jawaban belum berhasil tersimpan. Periksa koneksi, lalu coba kirim lagi. Jawaban lokal tetap dipertahankan.');
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }, [exam, scheduleId, router, releaseWakeLock, storageKey, orderKey]);
 
   useEffect(() => {
-    const handleReaktivasiLayar = () => {
-      if (document.visibilityState === 'visible' && hasAgreedRules) {
-        mintaLayarTetapAktif();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleReaktivasiLayar);
-    return () => {
-      document.removeEventListener('visibilitychange', handleReaktivasiLayar);
-      lepasLayarTetapAktif();
-    };
-  }, [hasAgreedRules, mintaLayarTetapAktif, lepasLayarTetapAktif]);
-
-  const kirimSatuJawabanKeSupabase = async (idSoal: string, hurufOpsi: string) => {
-    const uuidSiswaLogin = localStorage.getItem('session_siswa_id');
-    if (!uuidSiswaLogin || !idJadwal) return;
-
-    try {
-      setIsSyncing(true);
-      await supabase.from('jawaban_siswa').upsert({
-        id_siswa: uuidSiswaLogin,
-        id_jadwal: idJadwal,
-        id_soal: idSoal,
-        jawaban_terpilih: hurufOpsi,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'id_siswa,id_jadwal,id_soal' });
-    } catch (err) {
-      console.error('Gagal auto-sync jawaban:', err);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handlePilihJawaban = (idSoal: string, hurufOpsi: string) => {
-    const updatedJawaban = { ...jawabanSiswaRef.current, [idSoal]: hurufOpsi };
-    setJawabanSiswa(updatedJawaban);
-    jawabanSiswaRef.current = updatedJawaban;
-
-    localStorage.setItem(`backup_jawaban_${idJadwal}`, JSON.stringify(updatedJawaban));
-
-    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-    syncTimeoutRef.current = setTimeout(() => {
-      kirimSatuJawabanKeSupabase(idSoal, hurufOpsi);
-    }, 2500);
-  };
-
-  const eksekusiKirimJawabanAkhir = useCallback(async () => {
-    if (submittingRef.current) return;
-    setSubmitting(true);
-    submittingRef.current = true;
-    setShowConfirmSubmit(false);
-
-    try {
-      const uuidSiswaLogin = localStorage.getItem('session_siswa_id');
-      if (!uuidSiswaLogin) {
-        alert('Sesi Anda telah berakhir.');
-        router.push('/login-siswa');
+    let cancelled = false;
+    const initialize = async () => {
+      if (!scheduleId) {
+        setError('ID jadwal ujian tidak valid.');
+        setLoading(false);
         return;
       }
 
-      const namaSiswaTerbaru = namaSiswaRef.current || localStorage.getItem('session_siswa_nama') || 'Siswa';
-      const kelasSiswaTerbaru = localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM';
-
-      let jumlahBenar = 0;
-      let jumlahSalah = 0;
-
-      listSoalUjianRef.current.forEach((soal) => {
-        const jawabanSiswaTerpilih = jawabanSiswaRef.current[soal.id];
-        if (
-          jawabanSiswaTerpilih &&
-          soal.jawaban_benar &&
-          jawabanSiswaTerpilih.toUpperCase() === soal.jawaban_benar.trim().toUpperCase()
-        ) {
-          jumlahBenar++;
-        } else {
-          jumlahSalah++;
-        }
-      });
-
-      const totalSoal = listSoalUjianRef.current.length;
-      const nilaiAkhir = totalSoal > 0 ? Math.round((jumlahBenar / totalSoal) * 100) : 0;
-      const currentPelanggaran = parseInt(localStorage.getItem(`pelanggaran_${idJadwal}`) || '0', 10);
-
-      const listPayloadJawaban = Object.entries(jawabanSiswaRef.current).map(([idSoal, hurufOpsi]) => ({
-        id_siswa: uuidSiswaLogin,
-        id_jadwal: idJadwal,
-        id_soal: idSoal,
-        jawaban_terpilih: hurufOpsi,
-        updated_at: new Date().toISOString()
-      }));
-
-      if (listPayloadJawaban.length > 0) {
-        await supabase.from('jawaban_siswa').upsert(listPayloadJawaban, {
-          onConflict: 'id_siswa,id_jadwal,id_soal'
-        });
-      }
-
-      await supabase
-        .from('nilai_siswa')
-        .upsert({
-          id_siswa: uuidSiswaLogin,
-          id_jadwal: idJadwal,
-          nama_siswa: namaSiswaTerbaru,
-          kelas: kelasSiswaTerbaru,
-          jumlah_benar: jumlahBenar,
-          jumlah_salah: jumlahSalah,
-          nilai: nilaiAkhir,
-          jumlah_pelanggaran: currentPelanggaran,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'id_siswa,id_jadwal' });
-
-      localStorage.removeItem(`backup_jawaban_${idJadwal}`);
-      localStorage.removeItem(`pelanggaran_${idJadwal}`);
-      localStorage.removeItem(`urutan_soal_${idJadwal}_${uuidSiswaLogin}`);
-
-      await lepasLayarTetapAktif();
-
-      if (document.fullscreenElement) {
-        await document.exitFullscreen().catch(() => {});
-      }
-
-      router.push('/siswa/dashboard');
-    } catch (err) {
-      console.error('Terjadi kesalahan saat submit:', err);
-      router.push('/siswa/dashboard');
-    } finally {
-      setSubmitting(false);
-      submittingRef.current = false;
-    }
-  }, [idJadwal, router, lepasLayarTetapAktif]);
-
-  useEffect(() => {
-    const inisialisasiSesiSiswa = async () => {
-      if (typeof window === 'undefined' || !idJadwal) return;
-      const siswaId = localStorage.getItem('session_siswa_id');
-      if (!siswaId) {
+      const studentId = localStorage.getItem('session_siswa_id');
+      if (!studentId || ['null', 'undefined'].includes(studentId)) {
         router.replace('/login-siswa');
         return;
       }
 
       try {
-        setLoadingText('Memasuki Antrean Server Ujian...');
-        const randomDelay = Math.floor(Math.random() * 2500) + 200;
-        await new Promise((res) => setTimeout(res, randomDelay));
+        const [profileResult, scheduleResult, configResult, scoreResult] = await Promise.all([
+          supabase.from('profiles').select('nama_lengkap, kelas, agama, mapel_pilihan').eq('id', studentId).maybeSingle(),
+          supabase.from('jadwal_ujian').select(`id, mapel_id, tanggal_ujian, jam_mulai, durasi_menit, jumlah_soal_tampil, token_ujian, mapel(id, nama_mapel, kelas, jurusan, status_mapel, acak_soal)`).eq('id', scheduleId).maybeSingle(),
+          supabase.from('pengaturan_global').select('maksimal_pelanggaran').maybeSingle(),
+          supabase.from('nilai_siswa').select('id, jumlah_pelanggaran, nilai').eq('id_siswa', studentId).eq('id_jadwal', scheduleId).maybeSingle(),
+        ]);
 
-        setLoadingText('Menyiapkan Lembar Ujian...');
+        if (profileResult.error) throw profileResult.error;
+        if (scheduleResult.error) throw scheduleResult.error;
+        if (scoreResult.error) throw scoreResult.error;
+        if (!profileResult.data) throw new Error('Profil siswa tidak ditemukan.');
+        if (!scheduleResult.data) throw new Error('Jadwal ujian tidak ditemukan.');
+        if (scoreResult.data?.nilai !== null && scoreResult.data?.nilai !== undefined) throw new Error('Anda sudah menyelesaikan ujian ini.');
 
-        const { data: config } = await supabase
-          .from('pengaturan_global')
-          .select('maksimal_pelanggaran')
-          .maybeSingle();
+        const profile = profileResult.data;
+        const rawSchedule = scheduleResult.data;
+        const subject = Array.isArray(rawSchedule.mapel) ? rawSchedule.mapel[0] : rawSchedule.mapel;
+        if (!subject) throw new Error('Mata pelajaran pada jadwal ini tidak ditemukan.');
 
-        if (config?.maksimal_pelanggaran) {
-          setMaxPelanggaran(config.maksimal_pelanggaran);
+        const normalizedExam = { ...rawSchedule, mapel: subject } as unknown as ExamSchedule;
+        const studentClass = profile.kelas || localStorage.getItem('session_siswa_kelas_lengkap') || '';
+        if (!studentClass) throw new Error('Kelas siswa belum diatur pada profil. Hubungi admin sekolah.');
+
+        // The dashboard checks token and geofence. Require the issued token again here so a direct URL
+        // cannot accidentally bypass that flow. This is not a substitute for server-side authorization.
+        const issuedToken = localStorage.getItem('session_token_aktif')?.trim().toUpperCase();
+        if (!issuedToken || issuedToken !== String(normalizedExam.token_ujian ?? '').trim().toUpperCase()) {
+          throw new Error('Token ujian belum diverifikasi. Kembali ke dashboard dan masukkan token ujian.');
         }
 
-        const { data: sudahAdaNilai } = await supabase
-          .from('nilai_siswa')
-          .select('id, jumlah_pelanggaran, nilai')
-          .eq('id_siswa', siswaId)
-          .eq('id_jadwal', idJadwal)
-          .maybeSingle();
+        const { start, end } = getExamTimes(normalizedExam);
+        const now = Date.now();
+        if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('Tanggal atau waktu jadwal ujian tidak valid.');
+        if (now < start || now > end) throw new Error('Ujian belum dimulai atau waktu pengerjaan sudah berakhir.');
 
-        if (sudahAdaNilai && sudahAdaNilai.nilai !== null && sudahAdaNilai.nilai !== undefined) {
-          setErrorMsg('🚫 Anda sudah menyelesaikan ujian ini.');
-          setLoading(false);
-          setTimeout(() => router.replace('/siswa/dashboard'), 3000);
-          return;
+        const studentClassTokens = normalize(studentClass).split(' ').filter(Boolean);
+        const studentMajor = normalize(localStorage.getItem('session_siswa_jurusan')) || studentClassTokens[1] || '';
+        if (!classMatches(studentClass, subject.kelas) || !majorMatches(studentMajor, studentClass, subject.jurusan)) {
+          throw new Error('Jadwal ujian ini tidak sesuai dengan kelas atau jurusan Anda.');
         }
 
-        let initialPelanggaran = sudahAdaNilai?.jumlah_pelanggaran || 0;
-        if (!initialPelanggaran) {
-          const savedLocal = localStorage.getItem(`pelanggaran_${idJadwal}`);
-          if (savedLocal) initialPelanggaran = parseInt(savedLocal, 10);
-        }
-        setPelanggaranCount(initialPelanggaran);
-        localStorage.setItem(`pelanggaran_${idJadwal}`, initialPelanggaran.toString());
-
-        const { data: dataProfil } = await supabase
-          .from('profiles')
-          .select('nama_lengkap, kelas, agama, mapel_pilihan')
-          .eq('id', siswaId)
-          .maybeSingle();
-
-        let kelasUtuhSiswa = 'UMUM';
-        let tingkatKelas = '';
-        let jurusanTarget = '';
-        const agamaSiswa = dataProfil?.agama?.trim().toLowerCase() || '';
-        const mapelPilihanSiswa = dataProfil?.mapel_pilihan?.trim().toLowerCase() || '';
-
-        if (dataProfil) {
-          setNamaSiswa(dataProfil.nama_lengkap || 'Siswa');
-          if (dataProfil.kelas) {
-            kelasUtuhSiswa = dataProfil.kelas.trim().toUpperCase();
-            localStorage.setItem('session_siswa_kelas_lengkap', kelasUtuhSiswa);
-
-            const bagianKelas = kelasUtuhSiswa.split(/[-\s]+/).filter(Boolean);
-            tingkatKelas = bagianKelas[0] ? bagianKelas[0].trim() : '';
-            jurusanTarget = bagianKelas[1] ? bagianKelas[1].trim() : '';
-          }
+        const examStatus = normalize(subject.status_mapel);
+        const religion = normalize(profile.agama);
+        const elective = normalize(profile.mapel_pilihan);
+        if (!isUniversal(examStatus) && examStatus !== religion && examStatus !== elective) {
+          throw new Error('Jadwal ujian ini tidak sesuai dengan mata pelajaran khusus pada profil Anda.');
         }
 
-        const { data: dataJadwal, error: errorJadwal } = await supabase
-          .from('jadwal_ujian')
-          .select(`
-            id,
-            mapel_id,
-            tanggal_ujian,
-            jam_mulai,
-            durasi_menit,
-            jumlah_soal_tampil,
-            mapel (
-              id,
-              nama_mapel,
-              kelas,
-              jurusan,
-              status_mapel,
-              acak_soal
-            )
-          `)
-          .eq('id', idJadwal)
-          .maybeSingle();
+        if (cancelled) return;
+        setExam(normalizedExam);
+        setStudentName(profile.nama_lengkap || 'Siswa');
+        if (configResult.data?.maksimal_pelanggaran) setMaxViolations(Number(configResult.data.maksimal_pelanggaran));
 
-        if (errorJadwal || !dataJadwal) {
-          setErrorMsg('❌ Jadwal ujian tidak ditemukan.');
-          return;
+        const localViolation = Number.parseInt(localStorage.getItem(`pelanggaran_${scheduleId}_${studentId}`) || '0', 10);
+        const initialViolations = Number(scoreResult.data?.jumlah_pelanggaran) || localViolation || 0;
+        setViolations(initialViolations);
+        violationCountRef.current = initialViolations;
+        localStorage.setItem(`pelanggaran_${scheduleId}_${studentId}`, String(initialViolations));
+        localStorage.setItem('session_siswa_kelas_lengkap', studentClass);
+
+        // Supabase's configured row limit can silently omit the rest of a large question bank;
+        // explicitly fetch in pages and stop only when the final short page is received.
+        const pageSize = 500;
+        const allQuestions: Question[] = [];
+        for (let offset = 0; ; offset += pageSize) {
+          const { data: page, error: questionError } = await supabase
+            .from('soal')
+            .select('*')
+            .eq('id_mapel', String(normalizedExam.mapel_id).trim())
+            .range(offset, offset + pageSize - 1);
+          if (questionError) throw questionError;
+          allQuestions.push(...((page ?? []) as Question[]));
+          if (!page || page.length < pageSize) break;
         }
 
-        const rawMapel = Array.isArray(dataJadwal.mapel) ? dataJadwal.mapel[0] : dataJadwal.mapel;
-        const jadwal = {
-          ...dataJadwal,
-          mapel: rawMapel
-        } as unknown as DetailJadwal;
-
-        setDetailJadwal(jadwal);
-
-        const { data: dataSoal, error: errorSoal } = await supabase
-          .from('soal')
-          .select('*')
-          .eq('id_mapel', String(jadwal.mapel_id).trim());
-
-        if (errorSoal || !dataSoal || dataSoal.length === 0) {
-          setErrorMsg(`⚠️ Tidak ditemukan butir soal yang cocok untuk kelas & jurusan Anda (${kelasUtuhSiswa}).`);
-          return;
-        }
-
-        const baseSoalList = dataSoal.filter((soalItem) =>
-          matchesSoalTarget(soalItem, kelasUtuhSiswa, jurusanTarget)
+        const studentQuestions = allQuestions.filter((question) =>
+          questionMatchesStudent(question, studentClass, studentMajor)
         );
+        const eligibleQuestions = studentQuestions.filter((question) => {
+          const specialQuestionStatus = normalize(question.status_khusus);
+          if (isUniversal(specialQuestionStatus)) return true;
+          if (isUniversal(examStatus)) return false;
+          return specialQuestionStatus === examStatus && (examStatus === religion || examStatus === elective);
+        });
 
-        const statusMapelJadwal = jadwal.mapel?.status_mapel?.trim().toLowerCase() || '';
-        let filteredSoalList: Soal[] = baseSoalList.length > 0 ? baseSoalList : dataSoal;
-
-        if (statusMapelJadwal !== '') {
-          filteredSoalList = filteredSoalList.filter((soalItem) => {
-            const statusKhususSoal = soalItem.status_khusus?.trim().toLowerCase() || '';
-
-            if (!statusKhususSoal || statusKhususSoal === 'umum') {
-              return true;
-            }
-
-            const cocokAgama = statusMapelJadwal === agamaSiswa;
-            const cocokMapelPilihan = statusMapelJadwal === mapelPilihanSiswa;
-
-            if (cocokAgama || cocokMapelPilihan) {
-              return (
-                statusKhususSoal === statusMapelJadwal ||
-                statusKhususSoal === agamaSiswa ||
-                statusKhususSoal === mapelPilihanSiswa
-              );
-            }
-
-            return false;
-          });
-
-          if (filteredSoalList.length === 0) {
-            filteredSoalList = dataSoal;
-          }
+        if (!eligibleQuestions.length) {
+          throw new Error(`Belum ada soal yang cocok untuk kelas, jurusan, dan mata pelajaran Anda (${studentClass}). Minta guru/admin memeriksa target soal.`);
         }
 
-        if (filteredSoalList.length === 0) {
-          setErrorMsg(`⚠️ Tidak ada soal yang tersedia untuk ujian ini.`);
-          return;
-        }
+        const quota = Math.max(1, Number(normalizedExam.jumlah_soal_tampil) || eligibleQuestions.length);
+        const studentOrderKey = orderKey(studentId);
+        const savedOrder = readJson<unknown>(localStorage.getItem(studentOrderKey), []);
+        let orderedQuestions: Question[];
 
-        const localBackup = localStorage.getItem(`backup_jawaban_${idJadwal}`);
-        let mappingJawaban: { [key: string]: string } = localBackup ? JSON.parse(localBackup) : {};
-
-        const { data: riwayatLama } = await supabase
-          .from('jawaban_siswa')
-          .select('id_soal, jawaban_terpilih')
-          .eq('id_siswa', siswaId)
-          .eq('id_jadwal', idJadwal);
-
-        if (riwayatLama && riwayatLama.length > 0) {
-          riwayatLama.forEach((row) => {
-            if (!mappingJawaban[row.id_soal]) {
-              mappingJawaban[row.id_soal] = row.jawaban_terpilih;
-            }
-          });
-        }
-
-        setJawabanSiswa(mappingJawaban);
-        jawabanSiswaRef.current = mappingJawaban;
-
-        let finalSoalList: Soal[] = [];
-        const storageKeyUrutan = `urutan_soal_${idJadwal}_${siswaId}`;
-        const savedOrderJson = localStorage.getItem(storageKeyUrutan);
-
-        if (jadwal.mapel?.acak_soal) {
-          if (savedOrderJson) {
-            try {
-              const savedOrderIds: string[] = JSON.parse(savedOrderJson);
-              const soalMap = new Map<string, Soal>(filteredSoalList.map((s) => [s.id, s]));
-
-              finalSoalList = savedOrderIds
-                .map((id) => soalMap.get(id))
-                .filter((s): s is Soal => s !== undefined);
-
-              if (finalSoalList.length < filteredSoalList.length) {
-                const missingSoal = filteredSoalList.filter((s) => !savedOrderIds.includes(s.id));
-                finalSoalList = [...finalSoalList, ...missingSoal];
-              }
-            } catch {
-              finalSoalList = acakSoalGrup(filteredSoalList);
-            }
-          } else {
-            const randomizedGrup = acakSoalGrup(filteredSoalList);
-            const limitedRandom = randomizedGrup.slice(0, Math.min(jadwal.jumlah_soal_tampil, randomizedGrup.length));
-            const orderIds = limitedRandom.map((s) => s.id);
-            localStorage.setItem(storageKeyUrutan, JSON.stringify(orderIds));
-            finalSoalList = limitedRandom;
+        if (normalizedExam.mapel?.acak_soal) {
+          const questionMap = new Map(eligibleQuestions.map((question) => [question.id, question]));
+          const savedIds = Array.isArray(savedOrder) ? savedOrder.filter((id): id is string => typeof id === 'string') : [];
+          const resumed = savedIds.map((id) => questionMap.get(id)).filter((question): question is Question => !!question);
+          const existingIds = new Set(resumed.map((question) => question.id));
+          const remaining = eligibleQuestions.filter((question) => !existingIds.has(question.id));
+          const groups = groupQuestions([...resumed, ...shuffle(remaining)]);
+          // If resuming, keep saved sequence as much as possible; group order may be reassembled to avoid splitting groups.
+          orderedQuestions = selectWholeGroups(groups, quota);
+          if (!savedIds.length || orderedQuestions.length !== resumed.length) {
+            localStorage.setItem(studentOrderKey, JSON.stringify(orderedQuestions.map((question) => question.id)));
           }
         } else {
-          finalSoalList = [...filteredSoalList].sort((a, b) => {
-            if (a.created_at && b.created_at) {
-              return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-            }
-            return a.id.localeCompare(b.id);
-          });
+          orderedQuestions = selectWholeGroups(groupQuestions(eligibleQuestions), quota);
         }
 
-        const slicedSoal = finalSoalList.slice(0, Math.min(jadwal.jumlah_soal_tampil, finalSoalList.length));
-        setListSoalUjian(slicedSoal);
-        listSoalUjianRef.current = slicedSoal;
-      } catch (err) {
-        console.error(err);
-        setErrorMsg('Gagal terhubung dengan server database.');
+        if (!orderedQuestions.length) throw new Error('Tidak ada soal yang dapat ditampilkan untuk jadwal ini.');
+        if (cancelled) return;
+
+        const backup = readJson<Record<string, string>>(localStorage.getItem(storageKey(studentId)), {});
+        const validQuestionIds = new Set(orderedQuestions.map((question) => question.id));
+        const restoredAnswers: Record<string, string> = {};
+        for (const [questionId, answer] of Object.entries(backup)) {
+          if (validQuestionIds.has(questionId) && /^[A-E]$/i.test(answer)) restoredAnswers[questionId] = answer.toUpperCase();
+        }
+
+        const { data: savedAnswers, error: savedAnswerError } = await supabase
+          .from('jawaban_siswa')
+          .select('id_soal, jawaban_terpilih')
+          .eq('id_siswa', studentId)
+          .eq('id_jadwal', scheduleId);
+        if (savedAnswerError) throw savedAnswerError;
+        for (const row of savedAnswers ?? []) {
+          if (validQuestionIds.has(row.id_soal) && !restoredAnswers[row.id_soal] && /^[A-E]$/i.test(row.jawaban_terpilih ?? '')) {
+            restoredAnswers[row.id_soal] = row.jawaban_terpilih.toUpperCase();
+          }
+        }
+
+        setAnswers(restoredAnswers);
+        answersRef.current = restoredAnswers;
+        setQuestions(orderedQuestions);
+        questionsRef.current = orderedQuestions;
+      } catch (initializeError) {
+        console.error('Gagal menyiapkan ujian:', initializeError);
+        if (!cancelled) setError(initializeError instanceof Error ? initializeError.message : 'Gagal memuat ujian. Silakan coba lagi.');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
-    inisialisasiSesiSiswa();
-  }, [idJadwal, router]);
+    initialize();
+    return () => {
+      cancelled = true;
+      for (const timer of debounceTimersRef.current.values()) clearTimeout(timer);
+      debounceTimersRef.current.clear();
+      void releaseWakeLock();
+    };
+  }, [scheduleId, router, orderKey, storageKey, releaseWakeLock]);
 
-  const handleMulaiUjianUlasan = async () => {
-    isInteractingRef.current = true;
-    setHasAgreedRules(true);
-    await mintaLayarTetapAktif();
+  useEffect(() => {
+    if (!exam || !agreed) return;
+    const tick = () => {
+      const { end } = getExamTimes(exam);
+      const remaining = Math.max(0, Math.floor((end - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0) void submitExam();
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [exam, agreed, submitExam]);
 
+  useEffect(() => {
+    if (!agreed) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void requestWakeLock();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [agreed, requestWakeLock]);
+
+  useEffect(() => {
+    if (!agreed || submitting) return;
+    const reportViolation = () => {
+      if (interactionRef.current || document.visibilityState === 'hidden') return;
+      setViolations((previous) => {
+        const next = previous + 1;
+        violationCountRef.current = next;
+        const studentId = localStorage.getItem('session_siswa_id');
+        if (studentId) localStorage.setItem(`pelanggaran_${scheduleId}_${studentId}`, String(next));
+        if (next >= maxViolations) {
+          setViolationOpen(false);
+          void submitExam();
+        } else {
+          setViolationOpen(true);
+        }
+        return next;
+      });
+    };
+    const onFullscreen = () => { if (!document.fullscreenElement) reportViolation(); };
+    const onBlur = () => { if (document.visibilityState === 'visible') reportViolation(); };
+    document.addEventListener('fullscreenchange', onFullscreen);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreen);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [agreed, submitting, maxViolations, scheduleId, submitExam]);
+
+  const chooseAnswer = (questionId: string, answer: string) => {
+    const updated = { ...answersRef.current, [questionId]: answer };
+    answersRef.current = updated;
+    setAnswers(updated);
+    const studentId = localStorage.getItem('session_siswa_id');
+    if (!studentId) return;
+
+    localStorage.setItem(storageKey(studentId), JSON.stringify(updated));
+    const previousTimer = debounceTimersRef.current.get(questionId);
+    if (previousTimer) clearTimeout(previousTimer);
+    const timer = setTimeout(async () => {
+      setSyncing(true);
+      setSaveError('');
+      try {
+        await syncAnswer(studentId, questionId, answer);
+      } catch (syncError) {
+        console.error('Jawaban belum tersinkron:', syncError);
+        setSaveError('Koneksi terputus; jawaban tersimpan sementara di perangkat dan akan dikirim saat ujian dikumpulkan.');
+      } finally {
+        debounceTimersRef.current.delete(questionId);
+        setSyncing(debounceTimersRef.current.size > 0);
+      }
+    }, 1000);
+    debounceTimersRef.current.set(questionId, timer);
+  };
+
+  const beginExam = async () => {
+    interactionRef.current = true;
+    setAgreed(true);
+    await requestWakeLock();
     try {
       if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
       }
-    } catch {
-      console.log('Fullscreen dipicu manual.');
-    }
-    setTimeout(() => {
-      isInteractingRef.current = false;
-    }, 500);
-  };
-
-  useEffect(() => {
-    if (!detailJadwal || !hasAgreedRules) return;
-
-    const hitungMundurWaktuAktual = () => {
-      let formatJamClean = detailJadwal.jam_mulai.trim().replace(/\./g, ':');
-      if (formatJamClean.split(':').length === 2) formatJamClean = `${formatJamClean}:00`;
-
-      const targetString = `${detailJadwal.tanggal_ujian.trim()}T${formatJamClean}`;
-      const waktuSelesaiEpoch = new Date(targetString).getTime() + (detailJadwal.durasi_menit * 60000);
-      const selisihDetikReal = Math.floor((waktuSelesaiEpoch - Date.now()) / 1000);
-
-      if (selisihDetikReal <= 0) {
-        setSisaDetik(0);
-        eksekusiKirimJawabanAkhir();
-      } else {
-        setSisaDetik(selisihDetikReal);
-      }
-    };
-
-    hitungMundurWaktuAktual();
-    const intervalId = setInterval(hitungMundurWaktuAktual, 1000);
-    return () => clearInterval(intervalId);
-  }, [detailJadwal, hasAgreedRules, eksekusiKirimJawabanAkhir]);
-
-  const simpanPelanggaranKeDb = async (count: number) => {
-    try {
-      const siswaId = localStorage.getItem('session_siswa_id');
-      if (!siswaId || !idJadwal) return;
-
-      await supabase.from('nilai_siswa').upsert({
-        id_siswa: siswaId,
-        id_jadwal: idJadwal,
-        nama_siswa: namaSiswaRef.current || localStorage.getItem('session_siswa_nama') || 'Siswa',
-        kelas: localStorage.getItem('session_siswa_kelas_lengkap') || 'UMUM',
-        jumlah_pelanggaran: count,
-      }, { onConflict: 'id_siswa,id_jadwal' });
-    } catch (err) {
-      console.error('Gagal update pelanggaran ke DB:', err);
+    } catch (fullscreenError) {
+      console.info('Fullscreen tidak tersedia; ujian tetap dapat dilanjutkan.', fullscreenError);
+    } finally {
+      setTimeout(() => { interactionRef.current = false; }, 500);
     }
   };
 
-  useEffect(() => {
-    if (loading || errorMsg || isForceSubmitted || !hasAgreedRules) return;
-
-    const tanganiPelanggaranLayar = () => {
-      if (isInteractingRef.current) return;
-
-      setPelanggaranCount((prev) => {
-        const updateNilai = prev + 1;
-        localStorage.setItem(`pelanggaran_${idJadwal}`, updateNilai.toString());
-        simpanPelanggaranKeDb(updateNilai);
-
-        if (updateNilai >= maxPelanggaran) {
-          setIsForceSubmitted(true);
-          setShowPelanggaranPopup(false);
-          eksekusiKirimJawabanAkhir();
-        } else {
-          setShowPelanggaranPopup(true);
-        }
-        return updateNilai;
-      });
-    };
-
-    const handleFullScreenChange = () => {
-      if (!document.fullscreenElement) {
-        tanganiPelanggaranLayar();
-      }
-    };
-
-    const handleWindowBlur = () => tanganiPelanggaranLayar();
-    const handleVisibilityChange = () => {
-      if (document.hidden) tanganiPelanggaranLayar();
-    };
-
-    const handleKeydownBanned = (e: KeyboardEvent) => {
-      if (
-        (e.ctrlKey && ['c', 'a', 'v', 'f', 'p', 's'].includes(e.key.toLowerCase())) ||
-        e.key === 'F12'
-      ) {
-        e.preventDefault();
-      }
-    };
-
-    const handleContextMenu = (e: MouseEvent) => e.preventDefault();
-
-    document.addEventListener('fullscreenchange', handleFullScreenChange);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleWindowBlur);
-    window.addEventListener('keydown', handleKeydownBanned);
-    document.addEventListener('contextmenu', handleContextMenu);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullScreenChange);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('keydown', handleKeydownBanned);
-      document.removeEventListener('contextmenu', handleContextMenu);
-    };
-  }, [loading, errorMsg, isForceSubmitted, hasAgreedRules, maxPelanggaran, idJadwal, eksekusiKirimJawabanAkhir]);
-
-  const handlePemicuSubmitPopUp = () => {
-    isInteractingRef.current = true;
-    const terlewat: number[] = [];
-    listSoalUjian.forEach((soal, index) => {
-      if (!jawabanSiswaRef.current[soal.id]) {
-        terlewat.push(index + 1);
-      }
-    });
-    setSoalBelumDijawab(terlewat);
-    setShowConfirmSubmit(true);
-    setTimeout(() => { isInteractingRef.current = false; }, 500);
+  const requestSubmit = () => {
+    interactionRef.current = true;
+    setUnanswered(questions.map((question, index) => answersRef.current[question.id] ? -1 : index + 1).filter((number) => number > 0));
+    setSubmitOpen(true);
+    setTimeout(() => { interactionRef.current = false; }, 500);
   };
 
-  const paksaKembaliFullScreen = async () => {
-    isInteractingRef.current = true;
-    await mintaLayarTetapAktif();
+  const returnToFullscreen = async () => {
+    interactionRef.current = true;
     try {
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
-      }
-      setShowPelanggaranPopup(false);
-    } catch {}
-    setTimeout(() => { isInteractingRef.current = false; }, 500);
+      if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+      setViolationOpen(false);
+      await requestWakeLock();
+    } catch (fullscreenError) {
+      console.info('Perangkat tidak mendukung fullscreen.', fullscreenError);
+    } finally {
+      setTimeout(() => { interactionRef.current = false; }, 500);
+    }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 flex flex-col items-center justify-center p-6 text-center space-y-4">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-black text-slate-800 tracking-wide">{loadingText}</p>
-      </div>
+      <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 p-6 text-center">
+        <div><div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" /><p className="mt-4 text-sm font-bold text-slate-700">Menyiapkan ujian...</p></div>
+      </main>
     );
   }
 
-  if (errorMsg) {
+  if (error || !exam || !questions.length) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-rose-50 to-red-50 flex items-center justify-center text-xs font-bold text-red-500 text-center p-4">
-        {errorMsg}
-      </div>
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
+        <section className="w-full max-w-lg rounded-3xl border border-rose-200 bg-white p-6 text-center shadow-lg">
+          <div className="text-3xl">⚠️</div>
+          <h1 className="mt-3 text-lg font-black text-slate-900">Ujian belum dapat dibuka</h1>
+          <p role="alert" className="mt-2 text-sm leading-relaxed text-rose-700">{error || 'Tidak ada soal untuk ujian ini.'}</p>
+          <button onClick={() => router.replace('/siswa/dashboard')} className="mt-5 w-full rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white">Kembali ke dashboard</button>
+        </section>
+      </main>
     );
   }
 
-  const soalSaatIni = listSoalUjian[nomorAktif];
-  const jam = Math.floor((sisaDetik || 0) / 3600).toString().padStart(2, '0');
-  const menit = Math.floor(((sisaDetik || 0) % 3600) / 60).toString().padStart(2, '0');
-  const detik = ((sisaDetik || 0) % 60).toString().padStart(2, '0');
+  const currentQuestion = questions[activeIndex];
+  const totalSeconds = secondsLeft ?? 0;
+  const clock = [Math.floor(totalSeconds / 3600), Math.floor((totalSeconds % 3600) / 60), totalSeconds % 60]
+    .map((part) => String(part).padStart(2, '0')).join(':');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 p-4 md:p-6 text-slate-800 pb-28 select-none relative">
-      {!hasAgreedRules && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-3xl max-w-lg w-full space-y-5 shadow-[0_25px_80px_-24px_rgba(15,23,42,0.7)]">
-            <div className="text-center space-y-2">
-              <span className="text-4xl block">🛡️</span>
-              <h2 className="text-lg font-black text-slate-900 tracking-wide">
-                PETUNJUK & ATURAN UJIAN
-              </h2>
-              <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">
-                Mata Pelajaran: {detailJadwal?.mapel?.nama_mapel || 'Ujian Online'}
-                {detailJadwal?.mapel?.status_mapel && (
-                  <span className="ml-1 text-amber-600">[{detailJadwal.mapel.status_mapel}]</span>
-                )}
-              </p>
+    <main className="relative min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50 to-sky-50 px-3 py-4 pb-28 text-slate-800 sm:px-5 md:p-6 md:pb-10">
+      {!agreed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-md">
+          <section className="w-full max-w-lg space-y-5 rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl md:p-8">
+            <div className="text-center">
+              <span className="text-4xl">🛡️</span>
+              <h1 className="mt-2 text-lg font-black text-slate-900">Petunjuk dan aturan ujian</h1>
+              <p className="mt-1 text-xs font-bold uppercase text-indigo-600">{exam.mapel?.nama_mapel || 'Ujian'}</p>
             </div>
-
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs space-y-3 leading-relaxed text-slate-700">
-              <p className="font-bold text-slate-900">Harap diperhatikan aturan keamanan berikut:</p>
-              <ul className="list-disc pl-4 space-y-1.5 text-slate-600">
-                <li>Layar akan dikunci dalam mode <strong className="text-slate-800">Layar Penuh (Fullscreen)</strong>.</li>
-                <li><strong className="text-red-600">Dilarang</strong> berpindah tab atau memperkecil browser.</li>
-                <li>Batas toleransi pelanggaran adalah <strong className="text-red-600">{maxPelanggaran} Kali</strong>.</li>
-              </ul>
+            <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-600">
+              Waktu ujian dihitung sesuai jadwal. Jawaban disimpan pada perangkat dan disinkronkan ke server. Pastikan koneksi internet tetap tersedia.
             </div>
-
-            <button
-              onClick={handleMulaiUjianUlasan}
-              className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold p-3.5 rounded-2xl text-xs uppercase tracking-widest shadow-lg transition duration-200"
-            >
-              Saya Mengerti & Mulai Ujian 🚀
-            </button>
-          </div>
+            <button onClick={beginExam} className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 p-3.5 text-sm font-black text-white shadow-lg">Saya mengerti, mulai ujian</button>
+          </section>
         </div>
       )}
 
-      {pelanggaranCount > 0 && (
-        <div className="max-w-5xl mx-auto mb-3 bg-red-50 border border-red-200 text-red-600 text-xs py-2.5 px-4 rounded-2xl font-bold flex justify-between items-center shadow-sm">
-          <span>⚠️ Terdeteksi keluar dari layar ujian!</span>
-          <span>Pelanggaran: {pelanggaranCount} / {maxPelanggaran}</span>
-        </div>
-      )}
-
-      <div className="max-w-5xl mx-auto space-y-4">
-        <div className="bg-white/85 backdrop-blur-xl p-4 rounded-2xl border border-slate-200/80 shadow-[0_18px_50px_-26px_rgba(79,70,229,0.55)] flex justify-between items-center text-xs">
-          <div className="flex items-center gap-3">
-            <div>
-              <p className="font-black text-indigo-600 uppercase tracking-wider text-sm">
-                {detailJadwal?.mapel ? detailJadwal.mapel.nama_mapel : 'Mata Pelajaran'}
-              </p>
-              <p className="text-slate-400 mt-0.5">Siswa: {namaSiswa || 'Siswa'}</p>
-            </div>
-            {isSyncing && (
-              <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full font-bold animate-pulse">
-                🔄 Menyimpan...
-              </span>
-            )}
+      <div className="mx-auto max-w-4xl space-y-4">
+        <header className="sticky top-2 z-20 flex items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/90 p-3 shadow-lg backdrop-blur-xl sm:p-4">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-black uppercase tracking-wide text-indigo-600">{exam.mapel?.nama_mapel}</p>
+            <p className="mt-1 truncate text-xs text-slate-500">{studentName} · {questions.length} soal</p>
           </div>
-          <div className="font-mono font-black px-4 py-2 bg-slate-900 border border-slate-900 text-amber-400 rounded-xl text-sm tracking-wider shadow-sm">
-            ⏱️ {`${jam}:${menit}:${detik}`}
-          </div>
-        </div>
+          <div className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 font-mono text-sm font-black text-amber-300" aria-live="polite">⏱ {clock}</div>
+        </header>
 
-        {soalSaatIni && (
-          <div className="bg-white/90 backdrop-blur-xl p-6 md:p-8 rounded-[28px] border border-slate-200/80 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.7)] space-y-6">
-            <div className="space-y-3">
-              <span className="bg-indigo-50 text-indigo-600 text-[10px] font-black px-2.5 py-1 rounded-full border border-indigo-100 uppercase tracking-wider">
-                Soal {nomorAktif + 1} dari {listSoalUjian.length}
-              </span>
-              <p className="text-sm md:text-base font-semibold text-slate-800 leading-relaxed">
-                {soalSaatIni.pertanyaan}
-              </p>
-
-              {soalSaatIni.gambar_soal && soalSaatIni.gambar_soal.trim() !== '' && (
-                <div className="p-2 bg-slate-50 rounded-2xl border border-slate-200 inline-block">
-                  <img
-                    src={soalSaatIni.gambar_soal}
-                    alt="Lampiran Gambar Soal"
-                    className="max-h-60 object-contain rounded-xl pointer-events-none select-none"
-                    onContextMenu={(e) => e.preventDefault()}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 text-xs">
-              {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
-                const textKey = `opsi_${letter.toLowerCase()}` as keyof Soal;
-                const imgKey = `gambar_${letter.toLowerCase()}` as keyof Soal;
-
-                const rawText = soalSaatIni[textKey] as string | undefined;
-                const rawImg = soalSaatIni[imgKey] as string | undefined;
-
-                const textOpsi = rawText ? rawText.trim() : '';
-                const imgOpsi = rawImg ? rawImg.trim() : '';
-
-                if (!textOpsi && !imgOpsi) return null;
-                const terpilih = jawabanSiswa[soalSaatIni.id] === letter;
-
-                return (
-                  <button
-                    key={letter}
-                    onClick={() => handlePilihJawaban(soalSaatIni.id, letter)}
-                    className={`w-full text-left p-4 rounded-2xl border transition-all flex flex-col gap-3 items-start ${
-                      terpilih
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-900 font-bold shadow-sm'
-                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 w-full">
-                      <span className={`w-7 h-7 flex items-center justify-center rounded-xl font-black text-xs shrink-0 ${
-                        terpilih ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-400'
-                      }`}>
-                        {letter}
-                      </span>
-                      <span className="text-sm font-medium break-words">{textOpsi || '-'}</span>
-                    </div>
-
-                    {imgOpsi && (
-                      <div className="mt-1 ml-10 p-1.5 bg-white rounded-xl border border-slate-200 inline-block max-w-xs overflow-hidden">
-                        <img
-                          src={imgOpsi}
-                          alt={`Opsi ${letter}`}
-                          className="max-h-32 object-contain rounded-md pointer-events-none select-none"
-                          onContextMenu={(e) => e.preventDefault()}
-                        />
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-              <button
-                disabled={nomorAktif === 0}
-                onClick={() => setNomorAktif((p) => p - 1)}
-                className="bg-white border border-slate-200 text-slate-600 font-bold px-4 py-2.5 rounded-xl text-xs disabled:opacity-20 transition hover:bg-slate-50 shadow-sm"
-              >
-                ⬅️ Sebelumnya
-              </button>
-
-              {nomorAktif === listSoalUjian.length - 1 ? (
-                <button
-                  disabled={submitting}
-                  onClick={handlePemicuSubmitPopUp}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-sm"
-                >
-                  🏁 Selesai & Kirim
-                </button>
-              ) : (
-                <button
-                  onClick={() => setNomorAktif((p) => p + 1)}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition shadow-sm"
-                >
-                  Berikutnya ➡️
-                </button>
-              )}
-            </div>
+        {violations > 0 && (
+          <div className="flex justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+            <span>Perhatian: keluar dari layar ujian terdeteksi.</span><span>{violations}/{maxViolations}</span>
           </div>
         )}
+        {(syncing || saveError) && (
+          <p role="status" className={`rounded-xl px-4 py-2 text-xs font-semibold ${saveError ? 'bg-amber-50 text-amber-800' : 'bg-white text-slate-500'}`}>
+            {saveError || 'Menyinkronkan jawaban...'}
+          </p>
+        )}
+
+        <section className="rounded-[26px] border border-slate-200/80 bg-white/95 p-4 shadow-xl sm:p-6 md:p-8">
+          <div className="mb-5 flex items-center justify-between gap-2">
+            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">Soal {activeIndex + 1} dari {questions.length}</span>
+            <span className="text-xs font-semibold text-slate-500">{Object.keys(answers).filter((id) => questions.some((question) => question.id === id)).length} dijawab</span>
+          </div>
+          <div className="space-y-4">
+            <p className="whitespace-pre-wrap break-words text-base font-semibold leading-relaxed text-slate-800">{currentQuestion.pertanyaan}</p>
+            {currentQuestion.gambar_soal?.trim() && <img src={currentQuestion.gambar_soal} alt="Gambar soal" className="max-h-72 max-w-full rounded-xl border border-slate-200 object-contain" />}
+          </div>
+
+          <div className="mt-6 grid gap-3">
+            {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => {
+              const text = currentQuestion[`opsi_${letter.toLowerCase()}` as keyof Question];
+              const image = currentQuestion[`gambar_${letter.toLowerCase()}` as keyof Question];
+              const optionText = typeof text === 'string' ? text.trim() : '';
+              const optionImage = typeof image === 'string' ? image.trim() : '';
+              if (!optionText && !optionImage) return null;
+              const selected = answers[currentQuestion.id] === letter;
+              return (
+                <button
+                  key={letter}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => chooseAnswer(currentQuestion.id, letter)}
+                  className={`flex min-h-14 w-full items-start gap-3 rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-4 focus:ring-indigo-100 ${selected ? 'border-indigo-500 bg-indigo-50 text-indigo-950' : 'border-slate-200 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/50'}`}
+                >
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-sm font-black ${selected ? 'bg-indigo-600 text-white' : 'border border-slate-200 bg-white text-slate-500'}`}>{letter}</span>
+                  <span className="min-w-0 flex-1 break-words pt-1 text-sm font-medium">{optionText}</span>
+                  {optionImage && <img src={optionImage} alt={`Gambar opsi ${letter}`} className="ml-auto max-h-24 max-w-28 shrink-0 rounded-lg object-contain" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <button type="button" disabled={activeIndex === 0} onClick={() => setActiveIndex((index) => Math.max(0, index - 1))} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-40">← Sebelumnya</button>
+            {activeIndex === questions.length - 1 ? (
+              <button type="button" disabled={submitting} onClick={requestSubmit} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white disabled:opacity-50">Selesai & kirim</button>
+            ) : (
+              <button type="button" onClick={() => setActiveIndex((index) => Math.min(questions.length - 1, index + 1))} className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white">Berikutnya →</button>
+            )}
+          </div>
+        </section>
       </div>
 
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end">
-        {isNavOpen && (
-          <div className="bg-white/95 p-4 rounded-2xl border border-slate-200 shadow-xl mb-4 w-64 grid grid-cols-5 gap-2 transition-all duration-200 max-h-80 overflow-y-auto">
-            {listSoalUjian.map((s, idx) => (
-              <button
-                key={s.id}
-                onClick={() => setNomorAktif(idx)}
-                className={`w-full aspect-square flex items-center justify-center rounded-xl text-xs font-black font-mono border transition-all ${
-                  idx === nomorAktif
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                    : jawabanSiswa[s.id]
-                    ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                    : 'bg-slate-50 text-slate-400 border-slate-200'
-                }`}
-              >
-                {idx + 1}
-              </button>
+      <div className="fixed bottom-4 right-4 z-30 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6">
+        {navOpen && (
+          <div className="grid max-h-64 w-[min(18rem,calc(100vw-2rem))] grid-cols-5 gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-xl">
+            {questions.map((question, index) => (
+              <button key={question.id} type="button" aria-label={`Buka soal ${index + 1}`} onClick={() => { setActiveIndex(index); setNavOpen(false); }} className={`aspect-square rounded-xl border text-sm font-black ${index === activeIndex ? 'border-indigo-600 bg-indigo-600 text-white' : answers[question.id] ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{index + 1}</button>
             ))}
           </div>
         )}
-        <button
-          onClick={() => setIsNavOpen(!isNavOpen)}
-          className="w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold flex items-center justify-center shadow-[0_18px_40px_-14px_rgba(79,70,229,0.9)] text-lg"
-        >
-          {isNavOpen ? '✕' : '☰'}
-        </button>
+        <button type="button" aria-expanded={navOpen} aria-label={navOpen ? 'Tutup navigasi soal' : 'Buka navigasi soal'} onClick={() => setNavOpen((open) => !open)} className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-xl font-black text-white shadow-xl">{navOpen ? '×' : '☰'}</button>
       </div>
 
-      {showConfirmSubmit && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-md w-full space-y-5 shadow-2xl text-center">
-            <span className="text-4xl block">📋</span>
-            <div className="space-y-1">
-              <h3 className="text-base font-black text-slate-900 tracking-wide">Kumpulkan Lembar Jawaban?</h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Pastikan seluruh butir pertanyaan telah Anda periksa kembali.
-              </p>
-            </div>
-
-            {soalBelumDijawab.length > 0 ? (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left space-y-1.5">
-                <span className="text-xs font-bold text-amber-800 block">⚠️ Perhatian! Ada {soalBelumDijawab.length} soal belum dijawab:</span>
-                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-0.5">
-                  {soalBelumDijawab.map((no) => (
-                    <span
-                      key={no}
-                      onClick={() => {
-                        setNomorAktif(no - 1);
-                        setShowConfirmSubmit(false);
-                      }}
-                      className="bg-white border border-amber-300 text-amber-700 font-mono font-bold text-[11px] px-2 py-0.5 rounded-md cursor-pointer hover:bg-amber-100 transition"
-                    >
-                      No. {no}
-                    </span>
-                  ))}
-                </div>
+      {submitOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <section className="w-full max-w-md space-y-4 rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <h2 className="text-lg font-black text-slate-900">Kumpulkan jawaban?</h2>
+            {unanswered.length > 0 ? (
+              <div className="rounded-xl bg-amber-50 p-3 text-left text-sm text-amber-900">
+                <p className="font-bold">Ada {unanswered.length} soal belum dijawab.</p>
+                <div className="mt-2 flex flex-wrap gap-2">{unanswered.map((number) => <button key={number} type="button" onClick={() => { setActiveIndex(number - 1); setSubmitOpen(false); }} className="rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs font-bold">No. {number}</button>)}</div>
               </div>
-            ) : (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-emerald-700 text-xs font-bold">
-                🎉 Semua soal sudah terisi dengan baik!
-              </div>
-            )}
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowConfirmSubmit(false)}
-                className="w-1/2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold p-3 rounded-xl text-xs transition"
-              >
-                Periksa Kembali
-              </button>
-              <button
-                onClick={eksekusiKirimJawabanAkhir}
-                disabled={submitting}
-                className="w-1/2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold p-3 rounded-xl text-xs uppercase tracking-wider shadow-sm transition disabled:opacity-50"
-              >
-                {submitting ? 'Mengirim...' : 'Ya, Kirim Sekarang'}
-              </button>
+            ) : <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">Semua soal sudah dijawab.</p>}
+            {saveError && <p role="alert" className="text-sm text-red-600">{saveError}</p>}
+            <div className="flex gap-3">
+              <button type="button" disabled={submitting} onClick={() => setSubmitOpen(false)} className="flex-1 rounded-xl bg-slate-100 p-3 text-sm font-bold text-slate-700">Periksa lagi</button>
+              <button type="button" disabled={submitting} onClick={() => void submitExam()} className="flex-1 rounded-xl bg-emerald-600 p-3 text-sm font-bold text-white disabled:opacity-50">{submitting ? 'Mengirim...' : 'Kirim sekarang'}</button>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
-      {showPelanggaranPopup && (
-        <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 p-6 rounded-2xl max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <span className="text-3xl block">🚨</span>
-            <h3 className="text-sm font-black text-red-600 uppercase tracking-wider">Peringatan Keamanan Ujian</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Sistem mencatat Anda keluar dari layar penuh atau meninggalkan jendela ujian.
-            </p>
-            <div className="bg-red-50 text-red-600 font-bold p-3 rounded-xl text-xs border border-red-200 font-mono">
-              Total Pelanggaran: {pelanggaranCount} / {maxPelanggaran}
-            </div>
-            <button
-              onClick={paksaKembaliFullScreen}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-3 rounded-xl text-xs uppercase tracking-widest shadow-md transition"
-            >
-              Kembalikan Layar Penuh 🔐
-            </button>
-          </div>
+      {violationOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 p-4">
+          <section className="w-full max-w-sm space-y-4 rounded-3xl bg-white p-6 text-center shadow-2xl">
+            <span className="text-3xl">⚠️</span>
+            <h2 className="font-black text-rose-700">Peringatan ujian</h2>
+            <p className="text-sm text-slate-600">Sistem mendeteksi layar ujian tidak aktif. Kembali ke ujian untuk melanjutkan.</p>
+            <p className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">Pelanggaran: {violations}/{maxViolations}</p>
+            <button type="button" onClick={() => void returnToFullscreen()} className="w-full rounded-xl bg-indigo-600 p-3 text-sm font-bold text-white">Kembali ke ujian</button>
+          </section>
         </div>
       )}
-    </div>
+    </main>
   );
 }
